@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Gizlilik Politikası">
+    <title>Gizlilik Politikası</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 60px 20px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        header p {
+            font-size: 1rem;
+            opacity: 0.95;
+            margin-bottom: 20px;
+        }
+
+        .last-updated {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            border-top: 1px solid rgba(255, 255, 255, 0.3);
+            padding-top: 15px;
+            margin-top: 15px;
+        }
+
+        .content {
+            padding: 40px 30px;
+        }
+
+        .toc {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            border-left: 4px solid #667eea;
+        }
+
+        .toc h3 {
+            margin-bottom: 15px;
+            color: #667eea;
+            font-size: 1.1rem;
+        }
+
+        .toc ul {
+            list-style: none;
+        }
+
+        .toc li {
+            margin: 8px 0;
+        }
+
+        .toc a {
+            color: #667eea;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .toc a:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+
+        section {
+            margin-bottom: 40px;
+        }
+
+        section h2 {
+            color: #667eea;
+            font-size: 1.8rem;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        section h3 {
+            color: #764ba2;
+            font-size: 1.2rem;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+
+        section p {
+            margin-bottom: 15px;
+            color: #555;
+            line-height: 1.8;
+        }
+
+        .highlight {
+            background: #f0f4ff;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            margin: 20px 0;
+        }
+
+        .highlight strong {
+            color: #667eea;
+        }
+
+        ul, ol {
+            margin-left: 25px;
+            margin-bottom: 15px;
+        }
+
+        li {
+            margin-bottom: 8px;
+            color: #555;
+        }
+
+        .contact-info {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 30px 0;
+        }
+
+        .contact-info h3 {
+            color: white;
+            margin-bottom: 12px;
+        }
+
+        .contact-info p {
+            color: rgba(255, 255, 255, 0.95);
+            margin-bottom: 8px;
+        }
+
+        .contact-info a {
+            color: #e0e0ff;
+            text-decoration: none;
+        }
+
+        .contact-info a:hover {
+            text-decoration: underline;
+        }
+
+        footer {
+            background: #f8f9fa;
+            padding: 30px;
+            text-align: center;
+            color: #999;
+            font-size: 0.9rem;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin: 10px 5px 10px 0;
+        }
+
+        .back-to-top {
+            display: none;
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #667eea;
+            color: white;
+            padding: 12px 16px;
+            border-radius: 50%;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 20px;
+            z-index: 1000;
+            transition: background 0.3s ease;
+        }
+
+        .back-to-top:hover {
+            background: #764ba2;
+        }
+
+        .back-to-top.show {
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.8rem;
+            }
+
+            header {
+                padding: 40px 20px;
+            }
+
+            .content {
+                padding: 25px 20px;
+            }
+
+            section h2 {
+                font-size: 1.4rem;
+            }
+
+            section h3 {
+                font-size: 1.1rem;
+            }
+
+            .contact-info {
+                padding: 20px;
+            }
+
+            .toc {
+                padding: 15px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+
+            header h1 {
+                font-size: 1.5rem;
+            }
+
+            .content {
+                padding: 20px 15px;
+            }
+
+            section h2 {
+                font-size: 1.2rem;
+            }
+
+            ul, ol {
+                margin-left: 20px;
+            }
+
+            .back-to-top {
+                bottom: 20px;
+                right: 20px;
+                padding: 10px 14px;
+                font-size: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Gizlilik Politikası</h1>
+            <p>Neon Rift</p>
+            <div class="last-updated">
+                Son güncelleme: <strong>11 Ağustos 2026</strong>
+            </div>
+        </header>
+
+        <div class="content">
+            <div class="toc">
+                <h3>📋 İçindekiler</h3>
+                <ul>
+                    <li><a href="#section1">Gizlilik Politikası</a></li>
+                    <li><a href="#section2">Veri Toplama</a></li>
+                    <li><a href="#section3">Veri Kullanımı</a></li>
+                    <li><a href="#section4">Veri Paylaşımı</a></li>
+                    <li><a href="#section5">Veri Güvenliği</a></li>
+                    <li><a href="#section6">Üçüncü Taraf Hizmetleri</a></li>
+                    <li><a href="#section7">Çocukların Gizliliği</a></li>
+                    <li><a href="#section8">Politika Değişiklikleri</a></li>
+                </ul>
+            </div>
+
+            <section id="section1">
+                <h2>🔒 Gizlilik Politikası</h2>
+                <p>
+                    "Neon Rift" uygulaması (bundan sonra "Uygulama" olarak anılacaktır) sizin gizliliğinizi korumaya sadık kalmıştır.
+                    Bu Gizlilik Politikası, uygulamanızı kullanırken nasıl verilerinizi işlediğimizi açıklamaktadır.
+                </p>
+                <div class="highlight">
+                    <strong>✓ Verileri Koruma Taahhüdü:</strong> Uygulamız kişisel veri toplamaz, depolamaz veya paylaşmaz.
+                    Gizliliğiniz bizim için en yüksek önceliktir.
+                </div>
+                <p>
+                    Bu Gizlilik Politikasını okuyarak, Google Play Store Veri Güvenliği bölümündeki taahhütlerimizi anlamış olacaksınız.
+                    Herhangi bir sorunuz varsa, lütfen bizimle iletişime geçiniz.
+                </p>
+            </section>
+
+            <section id="section2">
+                <h2>📊 Veri Toplama</h2>
+                <p>
+                    "Neon Rift" uygulaması <strong>hiçbir kişisel veri toplamaz</strong>.
+                    Uygulamanın işlevlerini yerine getirmek için kullanıcı verilerine ihtiyaç duymaz.
+                </p>
+                <h3>Toplamadığımız Veriler:</h3>
+                <div class="badge">✓ Ad ve Soyadı</div>
+                <div class="badge">✓ E-posta Adresi</div>
+                <div class="badge">✓ Telefon Numarası</div>
+                <div class="badge">✓ Konum Bilgisi</div>
+                <div class="badge">✓ Fotoğraf</div>
+                <div class="badge">✓ Kamera Erişimi</div>
+                <div class="badge">✓ Mikrofon Erişimi</div>
+                <div class="badge">✓ Kişi Listesi</div>
+                <div class="badge">✓ Tarama Geçmişi</div>
+                <div class="badge">✓ Cihaz Tanımlayıcıları</div>
+                <p style="margin-top: 20px;">
+                    Uygulama hiçbir izin talep etmez ve cihazınızın hiçbir hassas işlevine erişmez.
+                    Tüm işlemler cihazınız üzerinde yapılır ve hiçbir veri dışarıya gönderilmez.
+                </p>
+            </section>
+
+            <section id="section3">
+                <h2>🎯 Veri Kullanımı</h2>
+                <p>
+                    Uygulamaz herhangi bir kişisel veri toplamadığı için, veri kullanımı söz konusu değildir.
+                </p>
+                <h3>Cihaz Üstü İşleme (On-Device Processing):</h3>
+                <p>
+                    Uygulamanın tüm işlemleri tamamen cihazınız üzerinde gerçekleşir.
+                    Hiçbir bilgi uzak sunuculara iletilmez veya depolanmaz.
+                </p>
+                <div class="highlight">
+                    <strong>Avantajlar:</strong>
+                    <ul style="margin-top: 10px;">
+                        <li>Maksimum gizlilik</li>
+                        <li>İnternet bağlantısı gerektirmez</li>
+                        <li>Hızlı ve verimli performans</li>
+                        <li>Güvenli veri işleme</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="section4">
+                <h2>🔄 Veri Paylaşımı</h2>
+                <p>
+                    <strong>Uygulamız hiçbir veriyi üçüncü taraflarla paylaşmaz.</strong>
+                    Kişisel veri toplamadığımız için, paylaşacak veri bulunmamaktadır.
+                </p>
+                <h3>Veri Paylaşımı Yapılmayan Taraflar:</h3>
+                <ul>
+                    <li>Reklam ağları ve açık artırma platformları</li>
+                    <li>Analiz ve veri pazarlama şirketleri</li>
+                    <li>Sosyal medya platformları</li>
+                    <li>Üçüncü taraf SDK'ları ve kütüphaneler</li>
+                    <li>Devlet kurumları ve diğer kuruluşlar</li>
+                    <li>İşletme ortakları ve hizmet sağlayıcılar</li>
+                </ul>
+                <div class="highlight">
+                    <strong>Sonuç:</strong> Verileriniz tamamen sizin kontrolünüzde ve cihazınızda kalır.
+                    Hiçbir üçüncü taraf erişim hakkına sahip değildir.
+                </div>
+            </section>
+
+            <section id="section5">
+                <h2>🛡️ Veri Güvenliği</h2>
+                <p>
+                    Uygulamız kişisel veri toplamadığından, veri ihlali riski yoktur.
+                    Ancak, cihazınızda depolanan tüm veriler sizin sorumluluksunuzdadır.
+                </p>
+                <h3>Güvenlik Önlemleri:</h3>
+                <ul>
+                    <li><strong>Cihaz Üstü İşleme:</strong> Tüm veriler cihazınızda kalır, ağ üzerinden iletilmez</li>
+                    <li><strong>Şifreleme:</strong> Uygulama herhangi bir hassas veri depolamaz</li>
+                    <li><strong>İnternet Bağlantı Yok:</strong> Uzak sunucularla hiçbir iletişim kurulmaz</li>
+                    <li><strong>Düzenli Güncellemeler:</strong> Güvenlik yamaları düzenli olarak yayımlanır</li>
+                    <li><strong>Açık Kaynak Kütüphaneleri:</strong> Kullanılan tüm bağımlılıklar güvenli ve günceldir</li>
+                </ul>
+            </section>
+
+            <section id="section6">
+                <h2>🔗 Üçüncü Taraf Hizmetleri</h2>
+                <p>
+                    "Neon Rift" uygulaması <strong>hiçbir üçüncü taraf hizmeti veya SDK kullanmaz</strong>.
+                </p>
+                <h3>Kullanılmayan Hizmetler:</h3>
+                <ul>
+                    <li>Google Analytics, Firebase veya benzeri analiz araçları</li>
+                    <li>AdMob, AdSense veya diğer reklam ağları</li>
+                    <li>Crash reporting veya performans izleme araçları</li>
+                    <li>Sosyal medya SDK'ları</li>
+                    <li>Üçüncü taraf kimlik doğrulama hizmetleri</li>
+                    <li>Bulut saklama veya senkronizasyon hizmetleri</li>
+                </ul>
+                <div class="highlight">
+                    <strong>Sonuç:</strong> Uygulamanın işleyişi tamamen bağımsızdır ve üçüncü tarafların müdahalesi söz konusu değildir.
+                </div>
+            </section>
+
+            <section id="section7">
+                <h2>👶 Çocukların Gizliliği</h2>
+                <p>
+                    Uygulamaz hiçbir yaş sınırlaması yoktur ve tüm yaşlardaki kullanıcılar tarafından kullanılabilir.
+                </p>
+                <h3>Çocuklar İçin Gizlilik:</h3>
+                <ul>
+                    <li>Uygulama hiçbir kişisel veri toplamaz - çocuklar da dahil olmak üzere</li>
+                    <li>Hiçbir reklam, takip veya analiz yapılmaz</li>
+                    <li>Çocukların hesap oluşturmasına gerek yoktur</li>
+                    <li>Aileler güvenle çocuklarına uygulamayı indirtebilir</li>
+                    <li>Çocuklara yönelik hiçbir uygunsuz içerik bulunmamaktadır</li>
+                </ul>
+                <div class="highlight">
+                    <strong>COPPA Uyumluluğu:</strong> Uygulamaz Amerika Birleşik Devletleri'nde COPPA (Children's Online Privacy Protection Act)
+                    ve Avrupa'da GDPR'ın çocuklarla ilgili hükümleriyle tamamen uyumludur.
+                </div>
+            </section>
+
+            <section id="section8">
+                <h2>📝 Politika Değişiklikleri</h2>
+                <p>
+                    Bu Gizlilik Politikası gerektiğinde güncellenebilir.
+                    Politikada yapılan herhangi bir değişikliği bu sayfada yayımlanacaktır.
+                </p>
+                <h3>Önemli Değişiklikler:</h3>
+                <p>
+                    Eğer politikada önemli değişiklikler yapılırsa, size bildirimde bulunacağız.
+                    Güncellemeleri takip etmek için bu sayfayı düzenli olarak ziyaret etmenizi öneririz.
+                </p>
+                <div class="highlight">
+                    <strong>Son Güncelleme:</strong> 11 Ağustos 2026<br>
+                    <strong>Sonraki İnceleme Tarihi:</strong> 11 Ağustos 2027
+                </div>
+            </section>
+
+            <section>
+                <h2>📋 Google Play Store Uyumluluğu</h2>
+                <p>
+                    Bu gizlilik politikası, <strong>Google Play Store Veri Güvenliği formunda</strong>
+                    aşağıdaki bilgiler doğrultusunda oluşturulmuştur:
+                </p>
+                <ul>
+                    <li>✓ Hiçbir veri türü toplandığı beyanda bulunulmuştur</li>
+                    <li>✓ Hiçbir SDK veya üçüncü taraf hizmeti kullanılmamaktadır</li>
+                    <li>✓ Cihaz kimliği (IDFA, Android Advertising ID vb.) toplamakta kullınılmaz</li>
+                    <li>✓ Veriler üçüncü taraflarla paylaşılmamaktadır</li>
+                    <li>✓ Uygulama tamamen çevrimdışı çalışabilir</li>
+                    <li>✓ Hiçbir reklam veya analiz yapılmamaktadır</li>
+                </ul>
+            </section>
+        </div>
+
+        <footer>
+            <p>&copy; 2026 [GELİŞTİRİCİ ADI]. Tüm hakları saklıdır.</p>
+            <p style="margin-top: 10px; font-size: 0.85rem;">
+                Bu gizlilik politikası her zaman güncellenebilir. Son güncelleme: 11 Ağustos 2026
+            </p>
+        </footer>
+    </div>
+
+    <a href="#section1" class="back-to-top" id="backToTop">↑</a>
+
+    <script>
+        // Scroll to top butonu
+        const backToTop = document.getElementById('backToTop');
+
+        window.addEventListener('scroll', () => {
+            if (window.pageYOffset > 300) {
+                backToTop.classList.add('show');
+            } else {
+                backToTop.classList.remove('show');
+            }
+        });
+
+        backToTop.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        });
+    </script>
+</body>
+</html>
