@@ -1,0 +1,55 @@
+MAFIA VIP PROTECTION - HAZIR KURULUM PAKETI
+===========================================
+
+Bu klasordeki UC dosyayi GTA V ana klasorundeki "scripts" klasorune kopyalayin:
+
+   GTA V\scripts\MafiaVIPProtection.dll
+   GTA V\scripts\MafiaVIPProtection.ini
+   GTA V\scripts\LemonUI.SHVDN3.dll        (menu kutuphanesi, MIT lisansli)
+
+"scripts" klasoru yoksa kendiniz olusturun.
+
+
+GEREKSINIMLER
+-------------
+- ScriptHookV            (ScriptHookV.dll + dinput8.dll, GTA V ana klasorune)
+- ScriptHookVDotNet 3.6.0 veya uzeri   <-- ONEMLI
+  (ScriptHookVDotNet.asi + ScriptHookVDotNet3.dll, GTA V ana klasorune)
+- .NET Framework 4.8     (Windows'ta zaten kurulu)
+
+Bu DLL, ScriptHookVDotNet 3.6.0 API'sine gore derlendi. Daha ESKI bir SHVDN
+surumu kullaniyorsaniz mod yuklenmez ("Could not load file or assembly
+ScriptHookVDotNet3, Version=3.6.0.0" hatasi). Cozum: SHVDN'i guncelleyin veya
+kaynak kodu kendi surumunuze karsi yeniden derleyin (bkz. ../README.md).
+
+
+TUSLAR
+------
+F7    Ana menu
+F8    Yakin koruma ekibi ac/kapa
+F9    Konvoy ac/kapa
+F10   Hava destegi ac/kapa
+F11   Takviye birlik cagir
+
+Tuslar MafiaVIPProtection.ini icindeki [Keys] bolumunden degistirilebilir.
+Baska modlarla cakisirsa: ModifierKey = LControlKey yapin (Ctrl + F8 gibi olur).
+
+
+SORUN GIDERME
+-------------
+Mod calismiyorsa su iki dosyaya bakin:
+
+   GTA V\ScriptHookVDotNet.log            -> yukleme hatalari
+   GTA V\scripts\MafiaVIPProtection.log   -> modun kendi gunlugu
+
+Sik gorulen durumlar:
+- "Gecersiz model: ..."  -> .ini icindeki ped/arac adi yanlis veya add-on yuklu degil
+- Korumalar spawn olmuyor -> oyunun ped limiti dolu olabilir, once F8 ile temizleyin
+- Menu acilmiyor -> LemonUI.SHVDN3.dll scripts klasorunde degil
+
+
+NOT
+---
+Yalnizca single-player icindir. GTA Online / FiveM ile kullanmayin.
+LemonUI.SHVDN3.dll ucuncu parti bir kutuphanedir (MIT lisansi),
+kolaylik olsun diye pakete dahil edilmistir.
