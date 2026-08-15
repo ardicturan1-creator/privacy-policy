@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>MafiaVIPProtection</AssemblyName>
+    <RootNamespace>MafiaVIP</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Product>Mafia VIP Protection</Product>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Description>GTA V - Mafia / VIP koruma sistemi (ScriptHookVDotNet v3)</Description>
+  </PropertyGroup>
+
+  <!--
+    Referanslar iki sekilde cozulur:
+    1) libs\ klasorune ScriptHookVDotNet3.dll ve LemonUI.SHVDN3.dll koyarsaniz
+       dogrudan onlar kullanilir (internet gerekmez, onerilen yol).
+    2) libs\ bossa NuGet uzerinden cekilir.
+  -->
+  <ItemGroup Condition="Exists('libs\ScriptHookVDotNet3.dll')">
+    <Reference Include="ScriptHookVDotNet3">
+      <HintPath>libs\ScriptHookVDotNet3.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="!Exists('libs\ScriptHookVDotNet3.dll')">
+    <PackageReference Include="ScriptHookVDotNet3" Version="3.*" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('libs\LemonUI.SHVDN3.dll')">
+    <Reference Include="LemonUI.SHVDN3">
+      <HintPath>libs\LemonUI.SHVDN3.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="!Exists('libs\LemonUI.SHVDN3.dll')">
+    <PackageReference Include="LemonUI.SHVDN3" Version="2.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="MafiaVIPProtection.ini">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
