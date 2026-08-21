@@ -42,6 +42,8 @@ namespace MafiaVIP
 
         private bool _playerWasDead;
         private int _lastPedViewBuild;
+        private int _lastPlayerHealth = -1;
+        private int _codeRedUntil;
 
         /// <summary>Konvoy aktifse bos koltuklu destek araci saglar (Main tarafindan baglanir).</summary>
         public Func<Vehicle> SupportVehicleProvider;
@@ -64,6 +66,16 @@ namespace MafiaVIP
         public int TargetCount { get; private set; }
         public string WeaponOverride { get; private set; }   // null = ayardan rastgele
         public int AliveCount { get { return LivingCount(); } }
+
+        /// <summary>Kod Kirmizi aktifken (ani can kaybi sonrasi) Pasif/Defansif farketmeksizin Agresif davranilir.</summary>
+        public GuardBehavior EffectiveBehavior
+        {
+            get
+            {
+                if (_cfg.CodeRedEnabled && Game.GameTime < _codeRedUntil) return GuardBehavior.Aggressive;
+                return Behavior;
+            }
+        }
 
         /// <summary>Listedeki canli koruma sayisi (temizlenmeyi bekleyen cesetler haric).</summary>
         private int LivingCount()
@@ -292,8 +304,18 @@ namespace MafiaVIP
                 Regroup(player);
             }
 
+            DetectCodeRed(player);
+
             bool playerInVehicle = player.IsInVehicle();
             _reservedSeats.Clear();
+
+            GuardBehavior behavior = EffectiveBehavior;
+
+            // Hedefleri paylastir: tum korumalar bagimsizca "en yakini" secerse
+            // hepsi ayni dusmana uşuşur, digerleri acikta kalir.
+            Dictionary<int, Ped> assignment = (behavior != GuardBehavior.Passive && _scanner.HasThreats)
+                ? _scanner.AssignTargets(Peds)
+                : null;
 
             for (int i = 0; i < _guards.Count; i++)
             {
@@ -302,8 +324,8 @@ namespace MafiaVIP
 
                 try
                 {
-                    if (playerInVehicle) UpdateGuardInVehicleMode(guard, player);
-                    else UpdateGuardOnFootMode(guard, player);
+                    if (playerInVehicle) UpdateGuardInVehicleMode(guard, player, behavior, assignment);
+                    else UpdateGuardOnFootMode(guard, player, behavior, assignment);
                 }
                 catch (Exception ex)
                 {
@@ -312,10 +334,29 @@ namespace MafiaVIP
             }
         }
 
+        /// <summary>Oyuncu kisa surede buyuk can kaybi yasarsa tum ekip gecici olarak agresiflesir.</summary>
+        private void DetectCodeRed(Ped player)
+        {
+            if (!_cfg.CodeRedEnabled) return;
+
+            int currentHealth = player.Health;
+            if (_lastPlayerHealth >= 0)
+            {
+                int drop = _lastPlayerHealth - currentHealth;
+                if (drop >= _cfg.CodeRedHealthDropThreshold && Game.GameTime >= _codeRedUntil)
+                {
+                    _codeRedUntil = Game.GameTime + _cfg.CodeRedDuration;
+                    Utils.Notify("~r~KOD KIRMIZI~s~ - ekip tam alarm durumunda!");
+                    Logger.Info("Kod Kirmizi tetiklendi (can dususu: " + drop + ").");
+                }
+            }
+            _lastPlayerHealth = currentHealth;
+        }
+
         // ------------------------------------------------------------------
         // Yaya modu
         // ------------------------------------------------------------------
-        private void UpdateGuardOnFootMode(Guard guard, Ped player)
+        private void UpdateGuardOnFootMode(Guard guard, Ped player, GuardBehavior behavior, Dictionary<int, Ped> assignment)
         {
             Ped ped = guard.Ped;
             int now = Game.GameTime;
@@ -351,10 +392,10 @@ namespace MafiaVIP
             }
 
             // --- Savas ---
-            if (Behavior != GuardBehavior.Passive && _scanner.HasThreats)
+            if (behavior != GuardBehavior.Passive && assignment != null)
             {
-                Ped target = _scanner.Nearest(ped.Position);
-                if (Utils.AlivePed(target))
+                Ped target;
+                if (assignment.TryGetValue(ped.Handle, out target) && Utils.AlivePed(target))
                 {
                     if (guard.TargetHandle != target.Handle || guard.State != GuardState.Fighting || now - guard.LastTaskTime > 6000)
                     {
@@ -380,9 +421,16 @@ namespace MafiaVIP
             if (needsRetask)
             {
                 Vector3 offset = SlotOffset(Formation, guard.SlotIndex, Math.Max(_guards.Count, 1));
+
+                // Oyuncunun gercek hareket durumuna gore koru: yururken yuru,
+                // kosarken kos, sprint atarken sprint. Sabit bir hiz kullanmak
+                // korumalarin oyuncuyu kaybetmesine ya da onunde takilmasina
+                // sebep oluyordu ("takip sistemi bozuk" sikayeti).
+                float followSpeed = player.IsSprinting ? 3f : player.IsRunning ? 2f : _cfg.GuardFollowSpeed;
+
                 N.TaskFollowToOffsetOfEntity(
                     ped.Handle, player.Handle, offset,
-                    _cfg.GuardFollowSpeed, -1, _cfg.GuardStoppingRange, true);
+                    followSpeed, -1, _cfg.GuardStoppingRange, true);
 
                 guard.State = GuardState.Following;
                 guard.LastTaskTime = now;
@@ -392,7 +440,7 @@ namespace MafiaVIP
         // ------------------------------------------------------------------
         // Arac modu
         // ------------------------------------------------------------------
-        private void UpdateGuardInVehicleMode(Guard guard, Ped player)
+        private void UpdateGuardInVehicleMode(Guard guard, Ped player, GuardBehavior behavior, Dictionary<int, Ped> assignment)
         {
             Ped ped = guard.Ped;
             Vehicle playerVehicle = player.CurrentVehicle;
@@ -406,10 +454,10 @@ namespace MafiaVIP
                 guard.State = GuardState.InVehicle;
 
                 // Aractan drive-by ile karsilik ver.
-                if (Behavior != GuardBehavior.Passive && _scanner.HasThreats)
+                if (behavior != GuardBehavior.Passive && assignment != null)
                 {
-                    Ped target = _scanner.Nearest(ped.Position);
-                    if (Utils.AlivePed(target) &&
+                    Ped target;
+                    if (assignment.TryGetValue(ped.Handle, out target) && Utils.AlivePed(target) &&
                         (guard.TargetHandle != target.Handle || now - guard.LastTaskTime > 5000))
                     {
                         N.TaskCombatPed(ped.Handle, target.Handle);

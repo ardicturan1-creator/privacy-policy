@@ -16,24 +16,22 @@ namespace MafiaVIP
     /// </summary>
     internal sealed class ConvoyManager
     {
-        // Escort modlari (native semantigi)
-        private const int EscortFront = 0;
-        private const int EscortRear = -1;
-        private const int EscortLeft = 1;
-        private const int EscortRight = 2;
-
         private sealed class ConvoyUnit
         {
             public Vehicle Vehicle;
             public Ped Driver;
             public readonly List<Ped> Crew = new List<Ped>();
             public Blip Blip;
-            public int Role = EscortRear;
+            public int Role = EscortMode.Rear;
             public float DistanceOffset;
             public int LastTaskTime;
             public int LastCombatTime;
             public int LastTargetHandle;
             public int LastMode = -999;
+
+            // Sikisma tespiti icin
+            public Vector3 LastCheckPosition;
+            public int LastMovedTime;
         }
 
         private readonly Config _cfg;
@@ -120,7 +118,7 @@ namespace MafiaVIP
                 for (int i = 0; i < _cfg.LeadVehicleCount; i++)
                 {
                     Vector3 spot = Utils.StreetNode(Utils.OffsetOf(anchor, new Vector3(0f, 14f + i * 9f, 0f)));
-                    ConvoyUnit unit = SpawnUnit(_cfg.LeadVehicleModels, spot, heading, EscortFront, 8f + i * 6f);
+                    ConvoyUnit unit = SpawnUnit(_cfg.LeadVehicleModels, spot, heading, EscortMode.Front, 8f + i * 6f);
                     if (unit != null) _units.Add(unit);
                 }
 
@@ -128,7 +126,7 @@ namespace MafiaVIP
                 for (int i = 0; i < _cfg.SupportVehicleCount; i++)
                 {
                     Vector3 spot = Utils.StreetNode(Utils.OffsetOf(anchor, new Vector3(0f, -14f - i * 9f, 0f)));
-                    ConvoyUnit unit = SpawnUnit(_cfg.SupportVehicleModels, spot, heading, EscortRear, 10f + i * 6f);
+                    ConvoyUnit unit = SpawnUnit(_cfg.SupportVehicleModels, spot, heading, EscortMode.Rear, 10f + i * 6f);
                     if (unit != null) _units.Add(unit);
                 }
 
@@ -234,7 +232,7 @@ namespace MafiaVIP
             if (_cfg.EnableBlips)
             {
                 unit.Blip = Utils.AttachBlip(vehicle, _cfg.ConvoyBlipSprite, _cfg.ConvoyBlipColor,
-                    role == EscortFront ? "Konvoy (Onde)" : "Konvoy (Destek)", 0.75f);
+                    role == EscortMode.Front ? "Konvoy (Onde)" : "Konvoy (Destek)", 0.75f);
             }
 
             return unit;
@@ -271,11 +269,72 @@ namespace MafiaVIP
             }
 
             int now = Game.GameTime;
+
+            // Her aracin surucusunu "temsilci" olarak kullanip hedefleri dagit;
+            // boylece tum konvoy tek bir dusmana yigilmaz.
+            List<Ped> representatives = new List<Ped>();
+            for (int i = 0; i < _units.Count; i++)
+                if (Utils.AlivePed(_units[i].Driver)) representatives.Add(_units[i].Driver);
+
+            Dictionary<int, Ped> assignment = (Behavior != GuardBehavior.Passive && _scanner.HasThreats)
+                ? _scanner.AssignTargets(representatives)
+                : null;
+
             for (int i = 0; i < _units.Count; i++)
             {
                 ConvoyUnit unit = _units[i];
-                try { UpdateUnit(unit, target, now); }
+                try
+                {
+                    UpdateUnit(unit, target, assignment, now);
+                    CheckStuck(unit, target, now);
+                }
                 catch (Exception ex) { Logger.Error("Konvoy birimi guncelleme hatasi", ex); }
+            }
+        }
+
+        /// <summary>
+        /// Hedef hareket ederken arac uzun sure neredeyse hic ilerlemiyorsa
+        /// (bir binaya/geometriye takilma, kotu pathing vb.) araci hedefin
+        /// yakinina isinlayarak kurtarir. Konvoyun "sikisip kalmasi" sikayetinin
+        /// dogrudan cozumu.
+        /// </summary>
+        private void CheckStuck(ConvoyUnit unit, Entity target, int now)
+        {
+            if (!Utils.DrivableVehicle(unit.Vehicle) || !Utils.AlivePed(unit.Driver)) return;
+            if (_deployStage > 0) return;   // mevzideyken sikisma kontrolu yapma
+
+            Vector3 pos = unit.Vehicle.Position;
+
+            if (unit.LastMovedTime == 0)
+            {
+                unit.LastCheckPosition = pos;
+                unit.LastMovedTime = now;
+                return;
+            }
+
+            if (Utils.FlatDistance(pos, unit.LastCheckPosition) > 3f)
+            {
+                unit.LastCheckPosition = pos;
+                unit.LastMovedTime = now;
+                return;
+            }
+
+            bool targetMoving = target.Velocity.Length() > 3f;
+            bool weAreStopped = unit.Vehicle.Speed < _cfg.StuckSpeedThreshold;
+            bool tooFar = Utils.FlatDistance(pos, target.Position) > Math.Max(20f, unit.DistanceOffset + 10f);
+
+            if (targetMoving && weAreStopped && tooFar && now - unit.LastMovedTime > _cfg.StuckTimeThreshold)
+            {
+                Vector3 recover = Utils.StreetNode(Utils.OffsetOf(target, new Vector3(0f, -unit.DistanceOffset - 4f, 0f)));
+                unit.Vehicle.Position = recover;
+                unit.Vehicle.Heading = target.Heading;
+                unit.Vehicle.Velocity = Vector3.Zero;
+                N.PlaceOnGroundProperly(unit.Vehicle.Handle);
+
+                unit.LastCheckPosition = unit.Vehicle.Position;
+                unit.LastMovedTime = now;
+                unit.LastTaskTime = 0;
+                Logger.Info("Konvoy araci sikisti, hedefin yanina isinlandi.");
             }
         }
 
@@ -292,7 +351,7 @@ namespace MafiaVIP
             return player;
         }
 
-        private void UpdateUnit(ConvoyUnit unit, Entity target, int now)
+        private void UpdateUnit(ConvoyUnit unit, Entity target, Dictionary<int, Ped> assignment, int now)
         {
             if (!Utils.DrivableVehicle(unit.Vehicle)) return;
 
@@ -303,10 +362,13 @@ namespace MafiaVIP
                 unit.LastTaskTime = 0;
             }
 
-            // Ekip drive-by ile karsilik versin.
-            if (Behavior != GuardBehavior.Passive && _scanner.HasThreats && now - unit.LastCombatTime > 4000)
+            // Ekip drive-by ile karsilik versin (paylastirilmis hedef atamasi kullanilir).
+            if (now - unit.LastCombatTime > 4000)
             {
-                Ped threat = _scanner.Nearest(unit.Vehicle.Position);
+                Ped threat = null;
+                if (assignment != null && Utils.AlivePed(unit.Driver))
+                    assignment.TryGetValue(unit.Driver.Handle, out threat);
+
                 if (Utils.AlivePed(threat))
                 {
                     for (int i = 0; i < unit.Crew.Count; i++)
@@ -345,7 +407,7 @@ namespace MafiaVIP
             {
                 // Gercek eskort davranisi: hedefin onunde / arkasinda / yaninda kalir.
                 N.TaskVehicleEscort(unit.Driver.Handle, unit.Vehicle.Handle, targetVehicle.Handle,
-                    unit.Role, speed, style, Math.Max(_cfg.ConvoyMinDistance, unit.DistanceOffset), 25f);
+                    unit.Role, speed, style, Math.Max(_cfg.ConvoyMinDistance, unit.DistanceOffset), _cfg.ConvoyNoRoadsDistance);
             }
             else
             {
@@ -453,18 +515,21 @@ namespace MafiaVIP
                 _deployStageTime = now;
             }
 
-            // Mevzideyken tehdit gorurse engaje olsun.
+            // Mevzideyken tehdit gorurse engaje olsun (hedefler dagitilarak atanir).
             if (_deployStage == 2 && Behavior != GuardBehavior.Passive && _scanner.HasThreats &&
                 now - _deployStageTime > 1500)
             {
                 List<Ped> deployed = CollectCrew();
+                Dictionary<int, Ped> assignment = _scanner.AssignTargets(deployed);
+
                 for (int i = 0; i < deployed.Count; i++)
                 {
                     Ped crew = deployed[i];
                     if (!Utils.AlivePed(crew)) continue;
 
-                    Ped threat = _scanner.Nearest(crew.Position);
-                    if (Utils.AlivePed(threat)) N.TaskCombatPed(crew.Handle, threat.Handle);
+                    Ped threat;
+                    if (assignment.TryGetValue(crew.Handle, out threat) && Utils.AlivePed(threat))
+                        N.TaskCombatPed(crew.Handle, threat.Handle);
                 }
 
                 _deployStageTime = now;   // tekrar hedef atamayi sinirla
@@ -543,7 +608,16 @@ namespace MafiaVIP
             SetFormation((Formation)values.GetValue((index + 1) % values.Length));
         }
 
-        /// <summary>Secilen dizilime gore araclarin escort rollerini dagitir.</summary>
+        /// <summary>
+        /// Secilen dizilime gore araclarin escort rollerini dagitir.
+        ///
+        /// NOT: Yan pozisyonlar icin kasitli olarak tam sol/sag (EscortMode.Left/Right)
+        /// DEGIL, capraz arka (RearLeft/RearRight) kullanilir. Tam yan pozisyon normal
+        /// iki seritli bir yolda araci fiziksel olarak karsi seride/kaldirima iter;
+        /// bu da "konvoy virajda dagiliyor / trafige giriyor" sikayetinin ana
+        /// sebeplerinden biridir. Capraz arka pozisyon ayni koruma hissini verirken
+        /// araci kendi seridinde tutar.
+        /// </summary>
         private void AssignRoles()
         {
             for (int i = 0; i < _units.Count; i++)
@@ -553,27 +627,27 @@ namespace MafiaVIP
                 switch (ConvoyFormation)
                 {
                     case Formation.Column:
-                        unit.Role = i == 0 ? EscortFront : EscortRear;
-                        unit.DistanceOffset = _cfg.ConvoyMinDistance + i * 7f;
+                        unit.Role = i == 0 ? EscortMode.Front : EscortMode.Rear;
+                        unit.DistanceOffset = _cfg.ConvoyMinDistance + i * 8f;
                         break;
 
                     case Formation.Box:
                     case Formation.Circle:
-                        unit.Role = i % 4 == 0 ? EscortFront
-                                  : i % 4 == 1 ? EscortRear
-                                  : i % 4 == 2 ? EscortLeft : EscortRight;
+                        unit.Role = i % 4 == 0 ? EscortMode.Front
+                                  : i % 4 == 1 ? EscortMode.Rear
+                                  : i % 4 == 2 ? EscortMode.RearLeft : EscortMode.RearRight;
                         unit.DistanceOffset = _cfg.ConvoyMinDistance;
                         break;
 
                     case Formation.Wedge:
-                        unit.Role = i % 2 == 0 ? EscortLeft : EscortRight;
-                        unit.DistanceOffset = _cfg.ConvoyMinDistance + i * 4f;
+                        unit.Role = i % 2 == 0 ? EscortMode.RearLeft : EscortMode.RearRight;
+                        unit.DistanceOffset = _cfg.ConvoyMinDistance + (i / 2) * 5f;
                         break;
 
                     default: // Diamond
-                        unit.Role = i == 0 ? EscortFront
-                                  : i == 1 ? EscortRear
-                                  : i == 2 ? EscortLeft : EscortRight;
+                        unit.Role = i == 0 ? EscortMode.Front
+                                  : i == 1 ? EscortMode.Rear
+                                  : i == 2 ? EscortMode.RearLeft : EscortMode.RearRight;
                         unit.DistanceOffset = _cfg.ConvoyMinDistance + (i / 2) * 5f;
                         break;
                 }

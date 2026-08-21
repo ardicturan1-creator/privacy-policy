@@ -28,8 +28,11 @@ TUSLAR
 F7    Ana menu
 F8    Yakin koruma ekibi ac/kapa
 F9    Konvoy ac/kapa
-F10   Hava destegi ac/kapa
-F11   Takviye birlik cagir
+F10   Hava destegi +1 BIRIM cagir (ayni anda birden fazla helikopter aktif olabilir)
+F11   Takviye birlik cagir (kara)
+
+Hava destegini geri gondermek menuden yapilir: Hava Destegi > Son Birimi / Tumunu Geri Gonder
+(F10'un "ac/kapa" degil "+1 birim ekle" olmasinin sebebi budur — coklu birim ozelligi.)
 
 Tuslar MafiaVIPProtection.ini icindeki [Keys] bolumunden degistirilebilir.
 Baska modlarla cakisirsa: ModifierKey = LControlKey yapin (Ctrl + F8 gibi olur).
@@ -53,3 +56,32 @@ NOT
 Yalnizca single-player icindir. GTA Online / FiveM ile kullanmayin.
 LemonUI.SHVDN3.dll ucuncu parti bir kutuphanedir (MIT lisansi),
 kolaylik olsun diye pakete dahil edilmistir.
+
+
+BU SURUMDE DUZELTILEN KRITIK HATALAR (v1.1)
+--------------------------------------------
+Onceki surumde native (oyun motoru) gorev kodlarinda karisiklik vardi:
+
+- Hava destegi "daire ciz" komutu yanlislikla "kac" (Flee) koduyla ayniydi —
+  helikopter oyuncunun etrafinda devriye gezecegine ondan KACIYORDU.
+- "Saldiri" komutu yanlislikla "git ve dur" (GoTo) koduna denk geliyordu —
+  helikopter hedefe ates etmek yerine sadece bir noktaya ucup duruyordu.
+- Cargobob/helikopter inis gorevlerinde gerekli "yere in" bayragi hic
+  gonderilmiyordu — arac hedefe yaklasiyor ama asla yere degmiyordu, bu
+  yuzden tahliyeye binmek imkansizdi.
+
+Bu surumde bu ucu de resmi native dokumantasyonuna gore duzeltildi, ayrica:
+
+- Ayni anda BIRDEN FAZLA hava destegi birimi cagrilabiliyor (MaxAirUnits, varsayilan 3).
+- Konvoyda yan pozisyonlar artik capraz-arka (RearLeft/RearRight) kullaniyor;
+  tam yan pozisyon araclari karsi seride/kaldirima itip "dagilma" hissi veriyordu.
+- Konvoy ve takviye araclari uzun sure sikisik kalirsa (StuckTimeThreshold)
+  otomatik olarak hedefin yanina isinlaniyor.
+- Korumalar artik oyuncunun gercek hareket durumuna (yuru/kos/sprint) gore
+  takip hizini degistiriyor.
+- Birden fazla koruma/mürettebat/hava birimi ayni tehdide uşuşmuyor, hedefler
+  aralarinda dagitiliyor.
+- "Kod Kirmizi": ani buyuk can kaybinda tum ekip gecici olarak tam alarma geciyor.
+- Helikopter inisi zaman asimina ugrarsa (dar alan, engebeli arazi vb.) manuel
+  yere kilitleme yedek mekanizmasi devreye giriyor — tahliyeye binememe
+  ihtimali pratik olarak ortadan kalkti.

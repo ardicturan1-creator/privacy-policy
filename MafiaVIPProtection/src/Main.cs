@@ -195,7 +195,9 @@ namespace MafiaVIP
                 }
                 else if (e.KeyCode == _cfg.AirSupportToggleKey && _cfg.AirSupportToggleKey != Keys.None)
                 {
-                    _air.Toggle();
+                    // Coklu birim destegi: her basis bir birim daha ekler (limite kadar).
+                    // Geri gondermek icin menudeki "Son Birimi / Tumunu Geri Gonder" kullanilir.
+                    _air.CallUnit();
                 }
                 else if (e.KeyCode == _cfg.BackupKey && _cfg.BackupKey != Keys.None)
                 {

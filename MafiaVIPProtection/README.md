@@ -8,6 +8,21 @@ Mafya tarzi, yuksek profilli bir suc orgutunun **VIP koruma birimi**. Uc katman:
 
 Ek olarak: kara yoluyla **takviye (backup)** sistemi, tam `.ini` yapilandirmasi, LemonUI menusu, blip'ler.
 
+### v1.1 — Kritik duzeltmeler ve AI pekistirmesi
+
+Onceki surumde resmi native dokumantasyonuyla dogrulanan uc kritik hata bulundu ve
+duzeltildi (detay icin `dist/KURULUM.txt` sonundaki degisiklik notuna bakin):
+
+- Hava destegi "daire ciz" komutu yanlislikla "kac" (Flee) koduyla ayniydi.
+- "Saldiri" komutu yanlislikla "git ve dur" (GoTo) koduna denk geliyordu.
+- Inis gorevlerinde gerekli "yere in" bayragi hic gonderilmiyordu (tahliyeye binilememesi).
+
+Ayrica: **coklu hava destegi birimi** (ayni anda birden fazla helikopter), konvoyda
+capraz-arka escort pozisyonlari (yol disina cikmayi onler), konvoy/takviye icin
+sikisma-tespiti ve otomatik kurtarma, oyuncunun hareketine (yuru/kos/sprint) gore
+dinamik koruma hizi, birden fazla savunmaci arasinda hedef dagitimi (hepsi ayni
+dusmana uşuşmasin diye) ve ani can kaybinda tum ekibi alarma geciren "Kod Kirmizi".
+
 ---
 
 ## 1. Kurulum Rehberi
@@ -72,7 +87,7 @@ Hata ayiklama gunlugu: `scripts\MafiaVIPProtection.log` (her oyun oturumunda sif
 | **F7** | Ana menuyu ac / kapa |
 | **F8** | Yakin koruma ekibini cagir / dagit |
 | **F9** | Konvoyu olustur / dagit |
-| **F10** | Hava destegini cagir / geri gonder |
+| **F10** | Hava destegine **+1 birim** ekle (limite kadar coklu birim aktif olabilir) |
 | **F11** | Kara yoluyla takviye birlik cagir |
 | (ayarlanabilir) | Formasyon degistir — `FormationCycleKey` |
 | (ayarlanabilir) | Tum ekipleri temizle — `ClearAllKey` |
@@ -100,7 +115,9 @@ MAFIA VIP
 │  ├─ Ekibi Indir (360 Savunma)
 │  └─ Ekibi Topla
 ├─ Hava Destegi
-│  ├─ Hava Destegi Cagir / Geri Gonder
+│  ├─ Hava Destegi Cagir (+1 Birim)     <- ayni anda birden fazla helikopter aktif olabilir
+│  ├─ Son Birimi Geri Gonder
+│  ├─ Tumunu Geri Gonder
 │  ├─ Hava Araci           (buzzard / savage / valkyrie / annihilator ...)
 │  ├─ Yukseklik (m)        (20 - 200)
 │  ├─ Mesafe (m)           (30 - 200, devriye yaricapi)
@@ -110,7 +127,7 @@ MAFIA VIP
 └─ Genel
    ├─ Yedek Birlik Cagir (Kara)
    ├─ Tum Ekipleri Temizle
-   ├─ Blipler / Bildirimler / Polisi Tehdit Say
+   ├─ Blipler / Bildirimler / Polisi Tehdit Say / Kod Kirmizi
    ├─ Ayarlari Yeniden Yukle
    └─ Yardim (tus atamalari)
 ```
@@ -128,6 +145,16 @@ davranirlar, kendiliginden saldirmazlar. Tehdit motoru bir hedefi ancak dusmanca
 bir eylemden sonra (ates etme, hasar verme, catismaya girme) isaretler ve hedefi
 20 saniye "aggro" hafizasinda tutar — boylece dusman siper alinca takip birakilmaz.
 Polisle catismak isterseniz `[General] EngagePolice = true` yapin (aranma varken devreye girer).
+
+**Hedef dagitimi:** birden fazla koruma/mürettebat/hava birimi varsa hepsi
+bagimsizca "en yakin" hedefi secmez (hepsi ayni dusmana uşuşup digerleri acikta
+kalirdi). Bunun yerine `ThreatScanner.AssignTargets` her savunmaciya -zaten
+baskasina atanmis olsa bile- mesafeye gore bir hedef atar ve zaten kullanilan
+hedeflere kucuk bir "ceza mesafesi" ekleyerek dogal bir dagilim saglar.
+
+**Kod Kirmizi:** oyuncu kisa surede buyuk can kaybi yasarsa (`CodeRedHealthDropThreshold`,
+varsayilan 35) tum ekip `CodeRedDuration` (varsayilan 12 sn) boyunca Pasif/Defansif
+farketmeksizin Agresif davranir. `[General] CodeRedEnabled = false` ile kapatilabilir.
 
 ### 2.4 Blip renkleri
 
@@ -148,10 +175,10 @@ Tum bolumler ve anahtarlar dosyanin icinde aciklamalidir. Ozet:
 | Bolum | Ne ayarlanir |
 |---|---|
 | `[Keys]` | Tum tus atamalari + opsiyonel modifier |
-| `[General]` | Blip/bildirim, tehdit yaricapi, polis davranisi, ceset temizligi, oyuncu olunce ekip davranisi, iliski grubu adi |
+| `[General]` | Blip/bildirim, tehdit yaricapi, polis davranisi, ceset temizligi, oyuncu olunce ekip davranisi, iliski grubu adi, Kod Kirmizi, sikisma-kurtarma esikleri |
 | `[CloseProtection]` | Koruma sayisi/limiti, ped modelleri, silahlar, can/zirh/isabet, savas parametreleri, otomatik yedek, formasyon, kiyafet setleri, blip |
-| `[Convoy]` | VIP araci, lead/destek arac modelleri ve sayilari, arac basina ekip, hiz ve surus stilleri, durusta inme, zirhlandirma, renk/cam filmi, blip |
-| `[AirSupport]` | Hava araci listesi, pilot modeli, nisanci sayisi, yukseklik/yaricap/hiz, otomatik engaje, cargobob modeli, blip |
+| `[Convoy]` | VIP araci, lead/destek arac modelleri ve sayilari, arac basina ekip, hiz ve surus stilleri, durusta inme, zirhlandirma, renk/cam filmi, yol-disi mesafesi, blip |
+| `[AirSupport]` | Hava araci listesi, pilot modeli, mürettebat sayisi, **MaxAirUnits (coklu birim limiti)**, yukseklik/yaricap/hiz, otomatik engaje, cargobob modeli, inis zaman asimi, blip |
 | `[Backup]` | Takviye araci, ekip buyuklugu, spawn mesafesi, bekleme suresi |
 
 Ornek — daha sert bir ekip:
@@ -201,6 +228,7 @@ uygulayabilirsiniz (tum aktif birimler temizlenir, ayarlar bastan okunur).
 | `Config.cs` | Tum ayarlar + varsayilan `.ini` uretimi + deger sinirlama |
 | `IniFile.cs` | Bagimsiz, hafif `.ini` okuyucu (tus/enum/liste/ondalik destegi) |
 | `Natives.cs` | Native cagrilari — **ham hash** ile, SHVDN surum farklarindan bagimsiz |
+| `NativeConstants.cs` | Resmi dokumantasyonla dogrulanmis HeliMission/HeliMissionFlags/EscortMode/DrivingStyle sabitleri |
 | `Utils.cs` | Model yukleme, blip, silme, konum ve geometri yardimcilari |
 | `Logger.cs` | Dosya log'u |
 | `Relationships.cs` | Iliski gruplari (oyuncu ile dost, sivil/polise notr) |
@@ -242,16 +270,22 @@ cesetler ayarlanan sureden sonra silinir, script kapatilirken (`Aborted`) her se
 1. **Konvoy AI oyunun surus motoruna baglidir.** `TASK_VEHICLE_ESCORT` dar sokaklarda
    veya yogun trafikte zaman zaman takilabilir; "Sessiz" modda daha duzgun, "Agresif"
    modda daha kaotik surerler. Cok dar alanlarda `LeadVehicleCount = 0` daha temiz sonuc verir.
-2. **Helikopter gorev kodlari** (`TASK_HELI_MISSION`) oyunun ic mantigina gore calisir;
-   silahsiz bir helikopter (orn. `valkyrie` yolcu koltuklari bos) hedefe roket atmaz,
-   engaje isini nisancilar yapar. Silahli hava araci icin `savage` / `annihilator` / `hunter` tercih edin.
+   Uzun sure ilerleyemeyen araclar `StuckTimeThreshold` sonrasi otomatik olarak hedefin
+   yanina isinlanir — bu ani bir konum degisimi olarak goze carpabilir, ama sonsuza kadar
+   sikisip kalmaktan iyidir.
+2. **Silahli helikopterlerde (Buzzard, Savage, Annihilator, Hunter...) mermiyi SADECE PILOT
+   atesler** — bu oyunun kendi kuralidir, yolcu koltugundaki bir ped monteli silahi kontrol
+   edemez. `GunnerCount` ile eklenen mürettebat, helikopter dusurulurse yerde savasan ek
+   destek olarak vardir; asil ates gucu pilotun otomatik saldiri gorevine baglidir.
 3. **Cargobob tahliyesi** oyuncunun manuel binmesini bekler; 60 saniye icinde binmezseniz ayrilir.
+   AI inis gorevi zaman zaman basarisiz olabilir; bu durumda `LandingTimeout` (varsayilan 45 sn)
+   sonrasi arac manuel olarak zemine kilitlenir, boylece binememe ihtimali pratik olarak yoktur.
 4. **Add-on araclarda koltuk sayisi** farkli olabilir; ekip `GetVehicleMaxNumberOfPassengers`
    ile sinirlandirilir, bu yuzden `GuardsPerVehicle` degerinden az koruma binebilir.
 5. **Oyuncunun aracina binis**: arac hareket halindeyken veya koruma 25 m'den uzaktayken
    takilma yasanmamasi icin koltuga isinlanarak bindirilir (bilincli tercih).
-6. **Cok fazla birim** (8 koruma + 4 arac + helikopter) dusuk sistemlerde FPS dusurebilir;
-   ped/arac limitine takilirsaniz spawn basarisiz olur ve `.log` dosyasina yazilir.
+6. **Cok fazla birim** (8 koruma + 4 arac + `MaxAirUnits` helikopter) dusuk sistemlerde FPS
+   dusurebilir; ped/arac limitine takilirsaniz spawn basarisiz olur ve `.log` dosyasina yazilir.
 7. Mod yalnizca **single-player** icindir. FiveM / GTA Online ile kullanilamaz ve kullanilmamalidir.
 
 ## 6. Gelistirme Onerileri (yol haritasi)

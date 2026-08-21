@@ -6,39 +6,59 @@ using GTA.Math;
 namespace MafiaVIP
 {
     /// <summary>
-    /// Hava savunma ve destek birimi.
+    /// Hava savunma ve destek birimi — COKLU birim destekli.
     ///
-    /// - Buzzard / Savage / Valkyrie / Annihilator vb. cagrilabilir
-    /// - Pilot + nisanci ekibi dogru koltuklara oturur
-    /// - Bos zamanda oyuncunun uzerinde daire cizer (mission 8)
-    /// - Tehdit varsa hedefi engaje eder (mission 4 + nisancilara TASK_COMBAT_PED)
-    /// - Cargobob ile extraction ve birlik indirme destegi
+    /// Onemli gercekler (resmi TASK_HELI_MISSION / SET_PED_COMBAT_ATTRIBUTES
+    /// dokumantasyonuyla dogrulandi):
+    ///
+    /// 1) Silahli helikopterlerde (Buzzard, Savage, Annihilator, Hunter...) mermiyi
+    ///    SADECE PILOT atesler; yolcu koltugundaki bir ped monteli silahi kontrol
+    ///    edemez. Bu yuzden "nisanci" kavramimiz gercekci: mürettebat, helikopter
+    ///    dusurulurse yerde savasan ek destek olarak vardir; asil ates gucu pilotun
+    ///    Attack (6) gorevine otomatik olarak baglidir.
+    ///
+    /// 2) TASK_HELI_MISSION'in gorev tipi (missionType) TASK_VEHICLE_MISSION ile
+    ///    AYNI numaralandirmayi paylasir: GoTo=4, Attack=6, Circle=9, Land=19,
+    ///    LandAndWait=20. Internette Circle=8 / Attack=4 diye yanlis kopyalanir;
+    ///    8 aslinda Flee'dir — yanlis kullanilirsa helikopter oyuncudan KACAR.
+    ///
+    /// 3) Inis gorevlerinde missionFlags parametresine LandOnArrival(32) |
+    ///    DontDoAvoidance(64) verilmezse pilot AI'i hedefe yaklasir ama hicbir
+    ///    zaman yere degmez, sonsuza kadar havada asili kalir (bu, "tahliyeye
+    ///    binilmiyor" sikayetinin kok nedenidir). Ayrica AI inis gorevi bazen
+    ///    engebeli/dar alanlarda basarisiz olabilecegi icin bir zaman asimindan
+    ///    sonra manuel "yere kilitleme" (freeze) yedek mekanizmasi da var.
     /// </summary>
     internal sealed class AirSupport
     {
-        // TASK_HELI_MISSION gorev kodlari
-        private const int MissionAttack = 4;
-        private const int MissionCircle = 8;
-        private const int MissionLandNearPed = 20;
+        private sealed class AirUnit
+        {
+            public Vehicle Heli;
+            public Ped Pilot;
+            public readonly List<Ped> Crew = new List<Ped>();
+            public Blip Blip;
+            public AirState State = AirState.Escorting;
+            public string Model;
+            public int Index;
+            public int LastTaskTime;
+            public int LastTargetHandle;
+            public int LeaveStartTime;
+        }
 
         private readonly Config _cfg;
         private readonly ThreatScanner _scanner;
-        private readonly List<Ped> _gunners = new List<Ped>();
+        private readonly List<AirUnit> _units = new List<AirUnit>();
+        private readonly List<Ped> _pilotView = new List<Ped>();
+        private int _unitCounter;
 
-        private Vehicle _heli;
-        private Ped _pilot;
-        private Blip _blip;
-        private int _lastTaskTime;
-        private int _lastTargetHandle;
-        private int _leaveTime;
-
-        // --- Cargobob gorevleri ---
+        // --- Cargobob gorevleri (tek seferlik, tahliye/birlik indirme) ---
         private Vehicle _cargobob;
         private Ped _cargoPilot;
         private Blip _cargoBlip;
         private readonly List<Ped> _cargoTroops = new List<Ped>();
         private int _cargoStage;         // 0 yok, 1 yaklasiyor, 2 indi, 3 ayriliyor
         private int _cargoStageTime;
+        private int _cargoApproachStart;
         private bool _cargoIsTroopDrop;
         private Func<Ped, bool> _adoptCallback;
 
@@ -50,14 +70,14 @@ namespace MafiaVIP
             Radius = cfg.AirRadius;
             CurrentModel = cfg.DefaultAirVehicle;
             AutoEngage = cfg.AirAutoEngage;
-            State = AirState.Idle;
         }
 
         // ------------------------------------------------------------------
         // Durum
         // ------------------------------------------------------------------
-        public AirState State { get; private set; }
-        public bool Active { get { return State != AirState.Idle && Utils.Valid(_heli); } }
+        public bool Active { get { return _units.Count > 0; } }
+        public int UnitCount { get { return _units.Count; } }
+        public int MaxUnits { get { return _cfg.MaxAirUnits; } }
         public float Height { get; private set; }
         public float Radius { get; private set; }
         public string CurrentModel { get; private set; }
@@ -67,7 +87,8 @@ namespace MafiaVIP
         // ==================================================================
         // Cagirma / gonderme
         // ==================================================================
-        public void Call(string modelName = null)
+        /// <summary>Yeni bir hava birimi ekler (MaxAirUnits'e kadar). Mevcutlari degistirmez.</summary>
+        public void CallUnit(string modelName = null)
         {
             Ped player = Game.Player.Character;
             if (!Utils.AlivePed(player))
@@ -76,139 +97,158 @@ namespace MafiaVIP
                 return;
             }
 
-            if (!string.IsNullOrEmpty(modelName)) CurrentModel = modelName;
+            if (_units.Count >= _cfg.MaxAirUnits)
+            {
+                Utils.Notify(string.Format("Hava destegi limiti doldu ({0}/{0}). Once bir birimi geri gonderin.",
+                    _cfg.MaxAirUnits));
+                return;
+            }
 
-            // Onceki helikopteri gonder.
-            if (Utils.Valid(_heli)) DismissInternal(true);
+            if (!string.IsNullOrEmpty(modelName)) CurrentModel = modelName;
+            string model = CurrentModel;
 
             try
             {
-                // Oyuncunun arkasinda ve yukarisinda spawn.
-                Vector3 spawn = Utils.OffsetOf(player, new Vector3(0f, -90f, Height + 25f));
+                int index = _units.Count;
+                // Her birim farkli bir noktadan gelsin ki cakismasinlar.
+                float angle = index * 47f;
+                Vector3 spawn = Utils.OffsetOf(player, new Vector3(
+                    (float)Math.Sin(angle * Math.PI / 180.0) * 90f,
+                    -70f - index * 25f,
+                    Height + 25f + index * 10f));
 
-                _heli = GuardFactory.CreateVehicle(_cfg, CurrentModel, spawn,
-                    Utils.HeadingTowards(spawn, player.Position));
-
-                if (!Utils.Valid(_heli))
+                Vehicle heli = GuardFactory.CreateVehicle(_cfg, model, spawn, Utils.HeadingTowards(spawn, player.Position));
+                if (!Utils.Valid(heli))
                 {
-                    Utils.Notify("Helikopter spawn edilemedi: " + CurrentModel);
+                    Utils.Notify("Helikopter spawn edilemedi: " + model);
                     return;
                 }
 
-                N.SetHeliBladesFullSpeed(_heli.Handle);
-                _heli.Velocity = _heli.ForwardVector * 20f;
-                if (_cfg.AirInvincible) N.SetInvincible(_heli.Handle, true);
+                N.SetHeliBladesFullSpeed(heli.Handle);
+                heli.Velocity = heli.ForwardVector * 20f;
+                if (_cfg.AirInvincible) N.SetInvincible(heli.Handle, true);
 
-                // --- Pilot ---
-                _pilot = GuardFactory.CreatePed(_cfg, _cfg.PilotModel, spawn, 0f);
-                if (_pilot == null)
+                Ped pilot = GuardFactory.CreatePed(_cfg, _cfg.PilotModel, spawn, 0f);
+                if (pilot == null)
                 {
-                    Utils.DeleteEntity(_heli);
-                    _heli = null;
+                    Utils.DeleteEntity(heli);
                     Utils.Notify("Pilot spawn edilemedi.");
                     return;
                 }
 
-                N.SetIntoVehicle(_pilot.Handle, _heli.Handle, -1);
-                N.SetCombatAttribute(_pilot.Handle, 1, true);    // arac kullanabilir
-                N.SetCombatAttribute(_pilot.Handle, 3, false);   // helikopteri terk etmesin
-                N.SetCombatAttribute(_pilot.Handle, 2, true);
-                N.SetDriverAbility(_pilot.Handle, 1f);
-                N.SetDriverAggressiveness(_pilot.Handle, 0.8f);
+                N.SetIntoVehicle(pilot.Handle, heli.Handle, -1);
+                N.SetCombatAttribute(pilot.Handle, 1, true);
+                N.SetCombatAttribute(pilot.Handle, 2, true);
+                N.SetCombatAttribute(pilot.Handle, 3, false);
+                N.SetDriverAbility(pilot.Handle, 1f);
+                N.SetDriverAggressiveness(pilot.Handle, 0.85f);
 
-                // --- Nisancilar ---
-                _gunners.Clear();
-                int maxPassengers = N.GetMaxPassengers(_heli.Handle);
-                int gunnerCount = Math.Min(_cfg.GunnerCount, maxPassengers);
-
-                for (int seat = 0; seat < gunnerCount; seat++)
+                AirUnit unit = new AirUnit
                 {
-                    Ped gunner = GuardFactory.CreateGuard(_cfg, spawn, 0f);
-                    if (gunner == null) break;
+                    Heli = heli,
+                    Pilot = pilot,
+                    Model = model,
+                    Index = index,
+                    State = AirState.Escorting
+                };
 
-                    N.SetIntoVehicle(gunner.Handle, _heli.Handle, seat);
-                    N.SetCombatAttribute(gunner.Handle, 2, true);   // havadan ates
-                    N.SetCombatAttribute(gunner.Handle, 3, false);  // atlamasin
-                    N.SetCanBeKnockedOffVehicle(gunner.Handle, 1);
-                    _gunners.Add(gunner);
+                int maxPassengers = N.GetMaxPassengers(heli.Handle);
+                int crewCount = Math.Min(_cfg.GunnerCount, maxPassengers);
+
+                for (int seat = 0; seat < crewCount; seat++)
+                {
+                    Ped crew = GuardFactory.CreateGuard(_cfg, spawn, 0f);
+                    if (crew == null) break;
+
+                    N.SetIntoVehicle(crew.Handle, heli.Handle, seat);
+                    N.SetCombatAttribute(crew.Handle, 2, true);
+                    N.SetCombatAttribute(crew.Handle, 3, false);
+                    N.SetCanBeKnockedOffVehicle(crew.Handle, 1);
+                    unit.Crew.Add(crew);
                 }
 
                 if (_cfg.EnableBlips)
                 {
-                    _blip = Utils.AttachBlip(_heli, _cfg.AirBlipSprite, _cfg.AirBlipColor, "Hava Destegi", 0.9f, false);
+                    _unitCounter++;
+                    unit.Blip = Utils.AttachBlip(heli, _cfg.AirBlipSprite, _cfg.AirBlipColor,
+                        "Hava Destegi #" + _unitCounter, 0.9f, false);
                 }
 
-                State = AirState.Escorting;
-                _lastTaskTime = 0;
-                _lastTargetHandle = 0;
-
-                Utils.Notify(string.Format("Hava destegi yolda: {0} ({1} nisanci).", CurrentModel, _gunners.Count));
-                Logger.Info("Hava destegi cagrildi: " + CurrentModel);
+                _units.Add(unit);
+                Utils.Notify(string.Format("Hava destegi yolda ({0}/{1}): {2}.",
+                    _units.Count, _cfg.MaxAirUnits, model));
+                Logger.Info("Hava destegi birimi cagrildi: " + model);
             }
             catch (Exception ex)
             {
-                Logger.Error("AirSupport.Call hatasi", ex);
-                DismissInternal(true);
+                Logger.Error("AirSupport.CallUnit hatasi", ex);
             }
         }
 
-        public void Dismiss()
+        /// <summary>En son cagrilan birimi ussune gonderir.</summary>
+        public void DismissLast()
         {
-            if (!Utils.Valid(_heli))
+            if (_units.Count == 0)
             {
-                DismissInternal(true);
+                Utils.Notify("Aktif hava destegi yok.");
+                return;
+            }
+            DismissUnit(_units[_units.Count - 1]);
+        }
+
+        public void DismissAll()
+        {
+            if (_units.Count == 0)
+            {
                 Utils.Notify("Aktif hava destegi yok.");
                 return;
             }
 
-            // Ussune donsun: uzak bir noktaya ucur, sonra sil.
+            for (int i = 0; i < _units.Count; i++) DismissUnit(_units[i]);
+            Utils.Notify("Tum hava destegi ussune donuyor.");
+        }
+
+        private void DismissUnit(AirUnit unit)
+        {
+            if (unit.State == AirState.Leaving) return;
+
             Ped player = Game.Player.Character;
-            if (Utils.AlivePed(_pilot) && Utils.Valid(player))
+            if (Utils.AlivePed(unit.Pilot) && Utils.DrivableVehicle(unit.Heli) && Utils.Valid(player))
             {
-                Vector3 away = player.Position + new Vector3(500f, 500f, 180f);
-                N.TaskHeliMission(_pilot.Handle, _heli.Handle, 0, 0, away, MissionAttack, 60f, 30f, -1f, 200, 100);
+                Vector3 away = player.Position + new Vector3(500f, 500f, 180f + unit.Index * 20f);
+                N.TaskHeliMission(unit.Pilot.Handle, unit.Heli.Handle, 0, 0, away,
+                    HeliMission.GoTo, 60f, 30f, -1f, 220, 120);
             }
 
-            Utils.RemoveBlip(_blip);
-            _blip = null;
-            State = AirState.Leaving;
-            _leaveTime = Game.GameTime;
-            Utils.Notify("Hava destegi ussune donuyor.");
+            Utils.RemoveBlip(unit.Blip);
+            unit.Blip = null;
+            unit.State = AirState.Leaving;
+            unit.LeaveStartTime = Game.GameTime;
         }
 
-        public void Toggle()
+        /// <summary>Tum birimleri aninda ve sessizce siler (script kapanisi vb.).</summary>
+        private void PurgeUnit(AirUnit unit, bool deleteEntities)
         {
-            if (Active) Dismiss();
-            else Call();
-        }
+            Utils.RemoveBlip(unit.Blip);
+            unit.Blip = null;
 
-        /// <summary>Anlik ve sessiz temizlik.</summary>
-        private void DismissInternal(bool deleteEntities)
-        {
-            Utils.RemoveBlip(_blip);
-            _blip = null;
-
-            for (int i = 0; i < _gunners.Count; i++)
+            for (int i = 0; i < unit.Crew.Count; i++)
             {
-                if (deleteEntities) Utils.DeleteEntity(_gunners[i]);
-                else Utils.Release(_gunners[i]);
+                if (deleteEntities) Utils.DeleteEntity(unit.Crew[i]);
+                else Utils.Release(unit.Crew[i]);
             }
-            _gunners.Clear();
+            unit.Crew.Clear();
 
             if (deleteEntities)
             {
-                Utils.DeleteEntity(_pilot);
-                Utils.DeleteEntity(_heli);
+                Utils.DeleteEntity(unit.Pilot);
+                Utils.DeleteEntity(unit.Heli);
             }
             else
             {
-                Utils.Release(_pilot);
-                Utils.Release(_heli);
+                Utils.Release(unit.Pilot);
+                Utils.Release(unit.Heli);
             }
-
-            _pilot = null;
-            _heli = null;
-            State = AirState.Idle;
         }
 
         // ==================================================================
@@ -218,94 +258,135 @@ namespace MafiaVIP
         {
             UpdateCargo();
 
-            if (State == AirState.Idle) return;
+            if (_units.Count == 0) return;
 
             Ped player = Game.Player.Character;
             if (!Utils.Valid(player)) return;
 
             int now = Game.GameTime;
 
-            // --- Ayrilma asamasi ---
-            if (State == AirState.Leaving)
+            // --- Ayrilanlari temizle ---
+            for (int i = _units.Count - 1; i >= 0; i--)
             {
-                bool farEnough = !Utils.Valid(_heli) ||
-                                 _heli.Position.DistanceTo(player.Position) > 400f;
+                AirUnit unit = _units[i];
 
-                if (farEnough || now - _leaveTime > 25000)
-                    DismissInternal(true);
-                return;
-            }
-
-            // --- Helikopter imha edildi mi? ---
-            if (!Utils.DrivableVehicle(_heli))
-            {
-                Utils.Notify("Hava destegi dusuruldu!");
-                Logger.Warn("Hava destegi kaybedildi.");
-                DismissInternal(false);
-                return;
-            }
-
-            // --- Pilot oldu mu? Nisancilardan biri direksiyona gecsin. ---
-            if (!Utils.AlivePed(_pilot))
-            {
-                if (!PromotePilot())
+                if (unit.State == AirState.Leaving)
                 {
-                    Utils.Notify("Pilot oldu - helikopter kontrolden cikti!");
-                    DismissInternal(false);
-                    return;
+                    bool farEnough = !Utils.Valid(unit.Heli) ||
+                                     unit.Heli.Position.DistanceTo(player.Position) > 400f;
+
+                    if (farEnough || now - unit.LeaveStartTime > 25000)
+                    {
+                        PurgeUnit(unit, true);
+                        _units.RemoveAt(i);
+                    }
+                    continue;
+                }
+
+                if (!Utils.DrivableVehicle(unit.Heli))
+                {
+                    Utils.Notify("Bir hava destegi birimi dusuruldu!");
+                    Logger.Warn("Hava destegi birimi kaybedildi.");
+                    PurgeUnit(unit, false);
+                    _units.RemoveAt(i);
+                    continue;
+                }
+
+                if (!Utils.AlivePed(unit.Pilot) && !PromotePilot(unit))
+                {
+                    Utils.Notify("Bir hava destegi biriminin pilotu oldu, kontrolden cikti.");
+                    PurgeUnit(unit, false);
+                    _units.RemoveAt(i);
                 }
             }
 
-            // --- Hedef secimi ---
-            Ped target = null;
-            if (AutoEngage && _scanner.HasThreats)
-                target = _scanner.Nearest(_heli.Position);
+            if (_units.Count == 0) return;
 
-            int targetHandle = Utils.AlivePed(target) ? target.Handle : 0;
-            bool targetChanged = targetHandle != _lastTargetHandle;
-            bool stale = now - _lastTaskTime > 5000;
+            // --- Hedef dagitimi: birden fazla birim ayni tehdide uşuşmesin ---
+            _pilotView.Clear();
+            for (int i = 0; i < _units.Count; i++)
+            {
+                if (_units[i].State == AirState.Leaving) continue;
+                if (Utils.AlivePed(_units[i].Pilot)) _pilotView.Add(_units[i].Pilot);
+            }
+
+            Dictionary<int, Ped> assignment = (AutoEngage && _scanner.HasThreats)
+                ? _scanner.AssignTargets(_pilotView)
+                : null;
+
+            for (int i = 0; i < _units.Count; i++)
+            {
+                AirUnit unit = _units[i];
+                if (unit.State == AirState.Leaving) continue;
+
+                try { UpdateUnit(unit, player, assignment, now); }
+                catch (Exception ex) { Logger.Error("Hava birimi guncelleme hatasi", ex); }
+            }
+        }
+
+        private void UpdateUnit(AirUnit unit, Ped player, Dictionary<int, Ped> assignment, int now)
+        {
+            Ped target = null;
+            if (assignment != null && Utils.AlivePed(unit.Pilot))
+                assignment.TryGetValue(unit.Pilot.Handle, out target);
+
+            if (!Utils.AlivePed(target)) target = null;
+
+            int targetHandle = target != null ? target.Handle : 0;
+            bool targetChanged = targetHandle != unit.LastTargetHandle;
+            bool stale = now - unit.LastTaskTime > 5000;
 
             if (!targetChanged && !stale) return;
 
             if (targetHandle != 0)
             {
-                // Saldiri gorevi
-                N.TaskHeliMission(_pilot.Handle, _heli.Handle, 0, targetHandle, Vector3.Zero,
-                    MissionAttack, _cfg.AirSpeed, 20f, -1f, (int)Height + 15, (int)Math.Max(15f, Height - 25f));
+                // Saldiri: pilot AI'i monteli silahi otomatik kullanir.
+                N.TaskHeliMission(unit.Pilot.Handle, unit.Heli.Handle, 0, targetHandle, Vector3.Zero,
+                    HeliMission.Attack, _cfg.AirSpeed, 20f, -1f,
+                    (int)Height + 15, (int)Math.Max(15f, Height - 25f));
 
-                for (int i = 0; i < _gunners.Count; i++)
+                for (int i = 0; i < unit.Crew.Count; i++)
                 {
-                    if (Utils.AlivePed(_gunners[i]))
-                        N.TaskCombatPed(_gunners[i].Handle, targetHandle);
+                    if (Utils.AlivePed(unit.Crew[i]))
+                        N.TaskCombatPed(unit.Crew[i].Handle, targetHandle);
                 }
 
-                State = AirState.Engaging;
+                unit.State = AirState.Engaging;
             }
             else
             {
-                // Eskort: oyuncunun uzerinde daire ciz
-                N.TaskHeliMission(_pilot.Handle, _heli.Handle, 0, player.Handle, Vector3.Zero,
-                    MissionCircle, _cfg.AirSpeed, Radius, -1f, (int)Height, (int)Math.Max(15f, Height - 20f));
+                // Bos zamanda oyuncunun uzerinde daire ciz. Birden fazla birim
+                // ayni cemberde cakismasin diye yaricap/yukseklik kademelendirilir
+                // ve yon sirayla tersine cevrilir.
+                float radius = Radius + unit.Index * 18f;
+                int height = (int)Height + unit.Index * 12;
+                int flags = (unit.Index % 2 == 1) ? HeliMissionFlags.None | 2048 /* CircleOppositeDirection */ : HeliMissionFlags.None;
 
-                State = AirState.Escorting;
+                N.TaskHeliMission(unit.Pilot.Handle, unit.Heli.Handle, 0, player.Handle, Vector3.Zero,
+                    HeliMission.Circle, _cfg.AirSpeed, radius, -1f,
+                    height, Math.Max(15, height - 20), flags);
+
+                unit.State = AirState.Escorting;
             }
 
-            _lastTargetHandle = targetHandle;
-            _lastTaskTime = now;
+            unit.LastTargetHandle = targetHandle;
+            unit.LastTaskTime = now;
         }
 
-        private bool PromotePilot()
+        private bool PromotePilot(AirUnit unit)
         {
-            for (int i = 0; i < _gunners.Count; i++)
+            for (int i = 0; i < unit.Crew.Count; i++)
             {
-                Ped gunner = _gunners[i];
-                if (!Utils.AlivePed(gunner)) continue;
+                Ped candidate = unit.Crew[i];
+                if (!Utils.AlivePed(candidate)) continue;
 
-                N.SetIntoVehicle(gunner.Handle, _heli.Handle, -1);
-                N.SetDriverAbility(gunner.Handle, 1f);
-                _pilot = gunner;
-                _gunners.RemoveAt(i);
-                _lastTaskTime = 0;
+                N.SetIntoVehicle(candidate.Handle, unit.Heli.Handle, -1);
+                N.SetDriverAbility(candidate.Handle, 1f);
+                N.SetCombatAttribute(candidate.Handle, 1, true);
+                N.SetCombatAttribute(candidate.Handle, 3, false);
+                unit.Pilot = candidate;
+                unit.Crew.RemoveAt(i);
+                unit.LastTaskTime = 0;
                 Logger.Info("Hava destegi: yardimci pilot devraldi.");
                 return true;
             }
@@ -318,41 +399,31 @@ namespace MafiaVIP
         public void SetHeight(float height)
         {
             Height = Math.Max(15f, Math.Min(250f, height));
-            _lastTaskTime = 0;
+            for (int i = 0; i < _units.Count; i++) _units[i].LastTaskTime = 0;
             Utils.Notify("Ucus yuksekligi: " + (int)Height + " m");
         }
 
         public void SetRadius(float radius)
         {
             Radius = Math.Max(20f, Math.Min(250f, radius));
-            _lastTaskTime = 0;
+            for (int i = 0; i < _units.Count; i++) _units[i].LastTaskTime = 0;
             Utils.Notify("Devriye yaricapi: " + (int)Radius + " m");
         }
 
         public void SetModel(string modelName)
         {
             CurrentModel = modelName;
-            if (Active)
-            {
-                Utils.Notify("Yeni helikopter cagriliyor: " + modelName);
-                Call(modelName);
-            }
-            else
-            {
-                Utils.Notify("Hava araci secildi: " + modelName);
-            }
+            Utils.Notify("Bir sonraki cagrida kullanilacak arac: " + modelName);
         }
 
         // ==================================================================
         // Cargobob gorevleri
         // ==================================================================
-        /// <summary>Cargobob ile tahliye: oyuncunun yanina iner ve bekler.</summary>
         public void RequestExtraction()
         {
             StartCargoMission(false, null);
         }
 
-        /// <summary>Cargobob ile takviye birlik indirme.</summary>
         public void RequestTroopDrop(Func<Ped, bool> adoptCallback)
         {
             StartCargoMission(true, adoptCallback);
@@ -420,12 +491,14 @@ namespace MafiaVIP
                     _cargoBlip = Utils.AttachBlip(_cargobob, _cfg.AirBlipSprite, _cfg.AirBlipColor,
                         troopDrop ? "Takviye Ucusu" : "Tahliye Ucusu", 0.9f, false);
 
-                // Oyuncunun yanina in.
+                // Oyuncunun yanina in: LandAndWait + LandOnArrival|DontDoAvoidance
+                // olmadan pilot hedefe yaklasir ama asla yere degmez.
                 N.TaskHeliMission(_cargoPilot.Handle, _cargobob.Handle, 0, player.Handle, Vector3.Zero,
-                    MissionLandNearPed, 60f, 40f, -1f, 60, 20);
+                    HeliMission.LandAndWait, 60f, 40f, -1f, 60, 20, HeliMissionFlags.LandingCombo);
 
                 _cargoStage = 1;
                 _cargoStageTime = Game.GameTime;
+                _cargoApproachStart = Game.GameTime;
 
                 Utils.Notify(troopDrop ? "Takviye birligi hava yoluyla geliyor." : "Tahliye helikopteri yolda.");
             }
@@ -450,8 +523,7 @@ namespace MafiaVIP
                 return;
             }
 
-            // Zaman asimi guvenligi
-            if (now - _cargoStageTime > 120000)
+            if (now - _cargoStageTime > 150000)
             {
                 CleanupCargo(false);
                 return;
@@ -465,8 +537,24 @@ namespace MafiaVIP
                         bool closeToPlayer = Utils.Valid(player) &&
                                              Utils.FlatDistance(_cargobob.Position, player.Position) < 45f;
 
-                        if (nearGround && closeToPlayer)
+                        // AI inisi basarisizsa (dar alan, engebeli arazi vb.) belirli bir
+                        // sureden sonra manuel olarak zemine kilitle — boylece oyuncu
+                        // helikopterin sonsuza dek havada asili kalmasi yuzunden asla
+                        // binemedigi durumla karsilasmaz.
+                        bool forceLanded = false;
+                        if (!nearGround && closeToPlayer && now - _cargoApproachStart > _cfg.LandingTimeout)
                         {
+                            Vector3 ground = Utils.SafeGround(_cargobob.Position);
+                            _cargobob.Position = new Vector3(_cargobob.Position.X, _cargobob.Position.Y, ground.Z + 0.6f);
+                            _cargobob.Velocity = Vector3.Zero;
+                            _cargobob.IsPositionFrozen = true;
+                            forceLanded = true;
+                            Logger.Info("Cargobob manuel inis ile zemine kilitlendi (AI inis zaman asimi).");
+                        }
+
+                        if ((nearGround && closeToPlayer) || forceLanded)
+                        {
+                            _cargobob.IsPositionFrozen = true;
                             _cargoStage = 2;
                             _cargoStageTime = now;
 
@@ -494,7 +582,6 @@ namespace MafiaVIP
                     {
                         if (_cargoIsTroopDrop)
                         {
-                            // Askerler indikten sonra yakin koruma ekibine katilsin.
                             if (now - _cargoStageTime > 3500)
                             {
                                 for (int i = 0; i < _cargoTroops.Count; i++)
@@ -511,22 +598,22 @@ namespace MafiaVIP
                         }
                         else
                         {
-                            // Oyuncu bindiyse havalan.
                             if (Utils.Valid(player) && player.IsInVehicle(_cargobob))
                             {
                                 Utils.Notify("Tahliye basladi.");
+                                _cargobob.IsPositionFrozen = false;
+
                                 if (Utils.AlivePed(_cargoPilot))
                                 {
                                     N.TaskHeliMission(_cargoPilot.Handle, _cargobob.Handle, 0, 0,
                                         player.Position + new Vector3(400f, 400f, 150f),
-                                        MissionAttack, 50f, 30f, -1f, 150, 60);
+                                        HeliMission.GoTo, 50f, 30f, -1f, 150, 60);
                                 }
                                 Utils.RemoveBlip(_cargoBlip);
                                 _cargoBlip = null;
                                 _cargoStage = 0;
                                 _cargoTroops.Clear();
 
-                                // Oyuncu iceride oldugu icin araci silmiyoruz, sadece birakiyoruz.
                                 Utils.Release(_cargobob);
                                 Utils.Release(_cargoPilot);
                                 _cargobob = null;
@@ -555,12 +642,14 @@ namespace MafiaVIP
 
         private void DepartCargo(Ped player)
         {
+            _cargobob.IsPositionFrozen = false;
+
             if (Utils.AlivePed(_cargoPilot) && Utils.Valid(_cargobob))
             {
                 Vector3 away = (Utils.Valid(player) ? player.Position : _cargobob.Position)
                                + new Vector3(400f, 400f, 160f);
                 N.TaskHeliMission(_cargoPilot.Handle, _cargobob.Handle, 0, 0, away,
-                    MissionAttack, 55f, 30f, -1f, 180, 80);
+                    HeliMission.GoTo, 55f, 30f, -1f, 180, 80);
             }
 
             Utils.RemoveBlip(_cargoBlip);
@@ -580,6 +669,8 @@ namespace MafiaVIP
                 else Utils.Release(_cargoTroops[i]);
             }
             _cargoTroops.Clear();
+
+            if (Utils.Valid(_cargobob)) _cargobob.IsPositionFrozen = false;
 
             if (deleteEntities)
             {
@@ -603,7 +694,8 @@ namespace MafiaVIP
         // ------------------------------------------------------------------
         public void CleanupAll()
         {
-            DismissInternal(true);
+            for (int i = 0; i < _units.Count; i++) PurgeUnit(_units[i], true);
+            _units.Clear();
             CleanupCargo(true);
         }
     }

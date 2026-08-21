@@ -32,6 +32,11 @@ namespace MafiaVIP
         public DeathBehavior PlayerDeath = DeathBehavior.Guard;
         public float TeleportDistance = 130f;         // Bu mesafeden uzaktaki koruma isinlanir
         public string RelationshipGroupName = "MAFIA_VIP_GUARDS";
+        public bool CodeRedEnabled = true;             // Ani can kaybinda tum ekip gecici olarak agresiflesir
+        public int CodeRedHealthDropThreshold = 35;    // Bu kadar ani can dususu Kod Kirmizi tetikler
+        public int CodeRedDuration = 12000;            // ms, agresif mod ne kadar surer
+        public float StuckSpeedThreshold = 1.5f;       // Bu hizin altinda "sikisti" sayilmaya baslar
+        public int StuckTimeThreshold = 7000;          // ms, bu sure sikisik kalirsa kurtarma devreye girer
 
         // ---------------- Yakin koruma ----------------
         public int GuardCount = 6;
@@ -81,10 +86,11 @@ namespace MafiaVIP
         public float SpeedNormal = 22f;
         public float SpeedAggressive = 38f;
         public float SpeedStealth = 14f;
-        public int DrivingStyleNormal = 786603;
-        public int DrivingStyleAggressive = 786469;
-        public int DrivingStyleStealth = 786603;
+        public int DrivingStyleNormal = DrivingStylePreset.Normal;
+        public int DrivingStyleAggressive = DrivingStylePreset.Rushed;
+        public int DrivingStyleStealth = DrivingStylePreset.Normal;
         public float ConvoyMinDistance = 12f;
+        public float ConvoyNoRoadsDistance = 20f;      // Bu mesafenin altinda arac yol agini yok sayip dogrudan takip eder
         public bool DeployOnStop = true;
         public float DeployRadius = 6.5f;
         public bool ArmoredVehicles = true;           // Lastik patlamaz + cam filmi
@@ -99,12 +105,14 @@ namespace MafiaVIP
         public string DefaultAirVehicle = "buzzard";
         public string PilotModel = "s_m_y_blackops_01";
         public int GunnerCount = 2;
+        public int MaxAirUnits = 3;                    // Ayni anda cagrilabilecek hava birimi sayisi
         public float AirHeight = 45f;
         public float AirRadius = 60f;
         public float AirSpeed = 40f;
         public bool AirAutoEngage = true;
         public bool AirInvincible = false;
         public string CargobobModel = "cargobob3";
+        public int LandingTimeout = 45000;             // ms, bu sureden sonra manuel inis devreye girer
         public int AirBlipColor = 5;                  // 5 = sari
         public int AirBlipSprite = 43;
 
@@ -162,6 +170,11 @@ namespace MafiaVIP
                 c.PlayerDeath = ini.GetEnum("General", "PlayerDeathBehavior", c.PlayerDeath);
                 c.TeleportDistance = ini.GetFloat("General", "TeleportDistance", c.TeleportDistance);
                 c.RelationshipGroupName = ini.GetString("General", "RelationshipGroupName", c.RelationshipGroupName);
+                c.CodeRedEnabled = ini.GetBool("General", "CodeRedEnabled", c.CodeRedEnabled);
+                c.CodeRedHealthDropThreshold = ini.GetInt("General", "CodeRedHealthDropThreshold", c.CodeRedHealthDropThreshold);
+                c.CodeRedDuration = ini.GetInt("General", "CodeRedDuration", c.CodeRedDuration);
+                c.StuckSpeedThreshold = ini.GetFloat("General", "StuckSpeedThreshold", c.StuckSpeedThreshold);
+                c.StuckTimeThreshold = ini.GetInt("General", "StuckTimeThreshold", c.StuckTimeThreshold);
 
                 // -------- CloseProtection --------
                 c.GuardCount = ini.GetInt("CloseProtection", "GuardCount", c.GuardCount);
@@ -208,6 +221,7 @@ namespace MafiaVIP
                 c.DrivingStyleAggressive = ini.GetInt("Convoy", "DrivingStyleAggressive", c.DrivingStyleAggressive);
                 c.DrivingStyleStealth = ini.GetInt("Convoy", "DrivingStyleStealth", c.DrivingStyleStealth);
                 c.ConvoyMinDistance = ini.GetFloat("Convoy", "MinDistance", c.ConvoyMinDistance);
+                c.ConvoyNoRoadsDistance = ini.GetFloat("Convoy", "NoRoadsDistance", c.ConvoyNoRoadsDistance);
                 c.DeployOnStop = ini.GetBool("Convoy", "DeployOnStop", c.DeployOnStop);
                 c.DeployRadius = ini.GetFloat("Convoy", "DeployRadius", c.DeployRadius);
                 c.ArmoredVehicles = ini.GetBool("Convoy", "ArmoredVehicles", c.ArmoredVehicles);
@@ -222,12 +236,14 @@ namespace MafiaVIP
                 c.DefaultAirVehicle = ini.GetString("AirSupport", "DefaultAirVehicle", c.DefaultAirVehicle);
                 c.PilotModel = ini.GetString("AirSupport", "PilotModel", c.PilotModel);
                 c.GunnerCount = ini.GetInt("AirSupport", "GunnerCount", c.GunnerCount);
+                c.MaxAirUnits = ini.GetInt("AirSupport", "MaxAirUnits", c.MaxAirUnits);
                 c.AirHeight = ini.GetFloat("AirSupport", "Height", c.AirHeight);
                 c.AirRadius = ini.GetFloat("AirSupport", "Radius", c.AirRadius);
                 c.AirSpeed = ini.GetFloat("AirSupport", "Speed", c.AirSpeed);
                 c.AirAutoEngage = ini.GetBool("AirSupport", "AutoEngage", c.AirAutoEngage);
                 c.AirInvincible = ini.GetBool("AirSupport", "Invincible", c.AirInvincible);
                 c.CargobobModel = ini.GetString("AirSupport", "CargobobModel", c.CargobobModel);
+                c.LandingTimeout = ini.GetInt("AirSupport", "LandingTimeout", c.LandingTimeout);
                 c.AirBlipColor = ini.GetInt("AirSupport", "BlipColor", c.AirBlipColor);
                 c.AirBlipSprite = ini.GetInt("AirSupport", "BlipSprite", c.AirBlipSprite);
 
@@ -264,10 +280,17 @@ namespace MafiaVIP
             SupportVehicleCount = Math.Max(0, Math.Min(4, SupportVehicleCount));
             GuardsPerVehicle = Math.Max(0, Math.Min(3, GuardsPerVehicle));
             GunnerCount = Math.Max(0, Math.Min(4, GunnerCount));
+            MaxAirUnits = Math.Max(1, Math.Min(6, MaxAirUnits));
             AirHeight = Math.Max(15f, Math.Min(250f, AirHeight));
             AirRadius = Math.Max(20f, Math.Min(250f, AirRadius));
+            LandingTimeout = Math.Max(10000, Math.Min(120000, LandingTimeout));
             BackupSquadSize = Math.Max(1, Math.Min(8, BackupSquadSize));
             BackupSpawnDistance = Math.Max(60f, Math.Min(400f, BackupSpawnDistance));
+            CodeRedHealthDropThreshold = Math.Max(5, Math.Min(100, CodeRedHealthDropThreshold));
+            CodeRedDuration = Math.Max(2000, Math.Min(60000, CodeRedDuration));
+            StuckSpeedThreshold = Math.Max(0.3f, Math.Min(5f, StuckSpeedThreshold));
+            StuckTimeThreshold = Math.Max(2000, Math.Min(30000, StuckTimeThreshold));
+            ConvoyNoRoadsDistance = Math.Max(5f, Math.Min(60f, ConvoyNoRoadsDistance));
 
             if (GuardModels == null || GuardModels.Length == 0)
                 GuardModels = new[] { "s_m_m_highsec_01" };
@@ -327,6 +350,11 @@ namespace MafiaVIP
             sb.AppendLine("PlayerDeathBehavior = Guard  ; Guard | Scatter | Vanish");
             sb.AppendLine("TeleportDistance = 130       ; Bu mesafeden geride kalan koruma isinlanir");
             sb.AppendLine("RelationshipGroupName = MAFIA_VIP_GUARDS");
+            sb.AppendLine("CodeRedEnabled = true        ; Ani can kaybinda tum ekip gecici olarak agresiflesir");
+            sb.AppendLine("CodeRedHealthDropThreshold = 35  ; Bu kadar ani can dususu Kod Kirmizi tetikler");
+            sb.AppendLine("CodeRedDuration = 12000       ; ms, agresif mod ne kadar surer");
+            sb.AppendLine("StuckSpeedThreshold = 1.5     ; Bu hizin altinda arac/koruma 'sikisti' sayilmaya baslar");
+            sb.AppendLine("StuckTimeThreshold = 7000     ; ms, bu sure sikisik kalirsa isinlanarak kurtarilir");
             sb.AppendLine();
             sb.AppendLine("[CloseProtection]");
             sb.AppendLine("GuardCount = 6");
@@ -375,6 +403,7 @@ namespace MafiaVIP
             sb.AppendLine("DrivingStyleAggressive = 786469");
             sb.AppendLine("DrivingStyleStealth = 786603");
             sb.AppendLine("MinDistance = 12");
+            sb.AppendLine("NoRoadsDistance = 20         ; Bu mesafenin altinda arac yol agini yok sayip dogrudan takip eder");
             sb.AppendLine("DeployOnStop = true          ; Konvoy durunca korumalar insin");
             sb.AppendLine("DeployRadius = 6.5");
             sb.AppendLine("ArmoredVehicles = true");
@@ -388,13 +417,16 @@ namespace MafiaVIP
             sb.AppendLine("AirVehicleModels = buzzard, savage, valkyrie, annihilator");
             sb.AppendLine("DefaultAirVehicle = buzzard");
             sb.AppendLine("PilotModel = s_m_y_blackops_01");
-            sb.AppendLine("GunnerCount = 2");
+            sb.AppendLine("GunnerCount = 2              ; NOT: mermili helikopterlerde (buzzard vb.) yolcular silahi ATESLEYEMEZ,");
+            sb.AppendLine(";  sadece pilot otomatik ates eder; yolcular yalnizca dusurulurse yerde savasan ek mürettebattir.");
+            sb.AppendLine("MaxAirUnits = 3              ; Ayni anda cagrilabilecek hava birimi sayisi");
             sb.AppendLine("Height = 45");
             sb.AppendLine("Radius = 60");
             sb.AppendLine("Speed = 40");
             sb.AppendLine("AutoEngage = true");
             sb.AppendLine("Invincible = false");
             sb.AppendLine("CargobobModel = cargobob3");
+            sb.AppendLine("LandingTimeout = 45000       ; ms, bu sureden sonra manuel inis (yere kilitleme) devreye girer");
             sb.AppendLine("BlipColor = 5                ; 5 = sari");
             sb.AppendLine("BlipSprite = 43");
             sb.AppendLine();

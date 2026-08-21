@@ -25,6 +25,10 @@ namespace MafiaVIP
         private int _lastCallTime = -999999;
         private Func<Ped, bool> _adoptCallback;
 
+        // Sikisma tespiti
+        private Vector3 _lastCheckPosition;
+        private int _lastMovedTime;
+
         public BackupManager(Config cfg)
         {
             _cfg = cfg;
@@ -111,6 +115,7 @@ namespace MafiaVIP
                 _stage = 1;
                 _stageTime = Game.GameTime;
                 _lastCallTime = Game.GameTime;
+                _lastMovedTime = 0;
 
                 Utils.Notify(string.Format("Takviye yolda: {0} birim.", _squad.Count));
                 Logger.Info("Takviye cagrildi: " + _squad.Count + " birim.");
@@ -165,6 +170,8 @@ namespace MafiaVIP
                     _stageTime = now - 3000;   // sik tetiklenmesin
                 }
 
+                CheckStuck(player, now, distance);
+
                 if (distance < 30f)
                 {
                     for (int i = 0; i < _squad.Count; i++)
@@ -186,6 +193,43 @@ namespace MafiaVIP
             // _stage == 2: inis tamamlandi, ekibe kat.
             if (now - _stageTime > 3000)
                 ReleaseSquadToPlayer();
+        }
+
+        /// <summary>Arac uzun sure yol alamiyorsa oyuncunun yakinina isinlayarak kurtarir.</summary>
+        private void CheckStuck(Ped player, int now, float distanceToPlayer)
+        {
+            if (!Utils.DrivableVehicle(_vehicle)) return;
+
+            Vector3 pos = _vehicle.Position;
+            if (_lastMovedTime == 0)
+            {
+                _lastCheckPosition = pos;
+                _lastMovedTime = now;
+                return;
+            }
+
+            if (Utils.FlatDistance(pos, _lastCheckPosition) > 3f)
+            {
+                _lastCheckPosition = pos;
+                _lastMovedTime = now;
+                return;
+            }
+
+            bool weAreStopped = _vehicle.Speed < _cfg.StuckSpeedThreshold;
+
+            if (weAreStopped && distanceToPlayer > 25f && now - _lastMovedTime > _cfg.StuckTimeThreshold)
+            {
+                Vector3 recover = Utils.StreetNode(Utils.OffsetOf(player, new Vector3(0f, -18f, 0f)));
+                _vehicle.Position = recover;
+                _vehicle.Heading = Utils.HeadingTowards(recover, player.Position);
+                _vehicle.Velocity = Vector3.Zero;
+                N.PlaceOnGroundProperly(_vehicle.Handle);
+
+                _lastCheckPosition = _vehicle.Position;
+                _lastMovedTime = now;
+                _stageTime = now - 3000;
+                Logger.Info("Takviye araci sikisti, oyuncunun yanina isinlandi.");
+            }
         }
 
         private void ReleaseSquadToPlayer()

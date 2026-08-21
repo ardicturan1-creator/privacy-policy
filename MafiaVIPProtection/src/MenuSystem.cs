@@ -69,10 +69,10 @@ namespace MafiaVIP
         {
             if (_statusItem == null) return;
 
-            _statusItem.Title = string.Format("Durum: {0} koruma | Konvoy {1} | Hava {2}",
+            _statusItem.Title = string.Format("Durum: {0} koruma | Konvoy {1} | Hava {2}/{3}",
                 _guards.AliveCount,
                 _convoy.Active ? _convoy.UnitCount + " arac" : "kapali",
-                _air.Active ? "aktif" : "kapali");
+                _air.UnitCount, _air.MaxUnits);
         }
 
         // ==================================================================
@@ -244,16 +244,21 @@ namespace MafiaVIP
             NativeMenu menu = new NativeMenu("Hava Destegi", "HAVA SAVUNMA VE DESTEK");
             _pool.Add(menu);
 
-            NativeItem call = new NativeItem("Hava Destegi Cagir", "Secili helikopteri goreve alir.");
-            call.Activated += (s, e) => Safe(() => _air.Call());
+            NativeItem call = new NativeItem("Hava Destegi Cagir (+1 Birim)",
+                "Secili helikopterden bir tane daha ekler (limite kadar). Ayni anda birden fazla birim aktif olabilir.");
+            call.Activated += (s, e) => Safe(() => _air.CallUnit());
             menu.Add(call);
 
-            NativeItem dismiss = new NativeItem("Geri Gonder", "Helikopter ussune doner.");
-            dismiss.Activated += (s, e) => Safe(() => _air.Dismiss());
-            menu.Add(dismiss);
+            NativeItem dismissLast = new NativeItem("Son Birimi Geri Gonder", "En son cagrilan hava birimini ussune yollar.");
+            dismissLast.Activated += (s, e) => Safe(() => _air.DismissLast());
+            menu.Add(dismissLast);
+
+            NativeItem dismissAll = new NativeItem("Tumunu Geri Gonder", "Aktif tum hava birimlerini ussune yollar.");
+            dismissAll.Activated += (s, e) => Safe(() => _air.DismissAll());
+            menu.Add(dismissAll);
 
             NativeListItem<string> typeItem = new NativeListItem<string>("Hava Araci",
-                "Kullanilacak helikopter modeli.", _cfg.AirVehicleModels);
+                "Bir sonraki 'Hava Destegi Cagir' ile spawn edilecek model.", _cfg.AirVehicleModels);
             int typeIndex = Array.IndexOf(_cfg.AirVehicleModels, _air.CurrentModel);
             typeItem.SelectedIndex = typeIndex >= 0 ? typeIndex : 0;
             typeItem.ItemChanged += (s, e) => Safe(() => _air.SetModel(typeItem.SelectedItem));
@@ -334,6 +339,12 @@ namespace MafiaVIP
             policeItem.CheckboxChanged += (s, e) => Safe(() => _cfg.EngagePolice = policeItem.Checked);
             menu.Add(policeItem);
 
+            NativeCheckboxItem codeRedItem = new NativeCheckboxItem("Kod Kirmizi",
+                "Ani buyuk can kaybinda tum ekip (Pasif/Defansif farketmeksizin) gecici olarak agresiflesir.",
+                _cfg.CodeRedEnabled);
+            codeRedItem.CheckboxChanged += (s, e) => Safe(() => _cfg.CodeRedEnabled = codeRedItem.Checked);
+            menu.Add(codeRedItem);
+
             NativeItem reload = new NativeItem("Ayarlari Yeniden Yukle",
                 "MafiaVIPProtection.ini dosyasini tekrar okur (tum birimler temizlenir).");
             reload.Activated += (s, e) => Safe(() => { if (_reloadConfig != null) _reloadConfig(); });
@@ -355,7 +366,7 @@ namespace MafiaVIP
             AddInfo(menu, "Menu", _cfg.MenuKey.ToString());
             AddInfo(menu, "Yakin koruma ac/kapa", modifier + _cfg.GuardsToggleKey);
             AddInfo(menu, "Konvoy ac/kapa", modifier + _cfg.ConvoyToggleKey);
-            AddInfo(menu, "Hava destegi ac/kapa", modifier + _cfg.AirSupportToggleKey);
+            AddInfo(menu, "Hava destegi +1 birim cagir", modifier + _cfg.AirSupportToggleKey);
             AddInfo(menu, "Yedek birlik", modifier + _cfg.BackupKey);
             AddInfo(menu, "Formasyon degistir", modifier + _cfg.FormationCycleKey);
             AddInfo(menu, "Tumunu temizle", modifier + _cfg.ClearAllKey);

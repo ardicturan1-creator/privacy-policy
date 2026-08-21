@@ -192,7 +192,12 @@ namespace MafiaVIP
             Call(H_TASK_LEAVE_VEHICLE, ped, vehicle, flags);
         }
 
-        /// <summary>mode: 0 = onde, -1 = arkada, 1 = solda, 2 = sagda</summary>
+        /// <summary>
+        /// mode (resmi natives dokumantasyonuyla dogrulandi):
+        /// -1 = arkada, 0 = onde, 1 = tam sol, 2 = tam sag, 3 = sol-arka capraz, 4 = sag-arka capraz.
+        /// Normal iki seritli yollarda tam sol/sag (1/2) araci karsi seride iter; konvoy
+        /// dizilimlerinde capraz pozisyonlar (3/4) tercih edilir.
+        /// </summary>
         public static void TaskVehicleEscort(int driver, int vehicle, int targetVehicle, int mode, float speed, int drivingStyle, float minDistance, float noRoadsDistance)
         {
             Call(H_TASK_VEHICLE_ESCORT, driver, vehicle, targetVehicle, mode, speed, drivingStyle, minDistance, 0, noRoadsDistance);
@@ -208,18 +213,24 @@ namespace MafiaVIP
             Call(H_TASK_VEHICLE_DRIVE_TO_COORD_LONGRANGE, driver, vehicle, pos.X, pos.Y, pos.Z, speed, drivingStyle, stopRange);
         }
 
-        /// <summary>mission 6 = hedefe saldir (ram/attack)</summary>
         public static void TaskVehicleMissionPedTarget(int driver, int vehicle, int targetPed, int mission, float speed, int drivingStyle, float minDistance)
         {
             Call(H_TASK_VEHICLE_MISSION_PED_TARGET, driver, vehicle, targetPed, mission, speed, drivingStyle, minDistance, 5f, true);
         }
 
-        /// <summary>missionFlag: 4 = hedefe saldir/takip et, 8 = hedef etrafinda daire ciz, 20 = yakina in</summary>
-        public static void TaskHeliMission(int pilot, int heli, int targetVehicle, int targetPed, Vector3 pos, int missionFlag,
-                                           float maxSpeed, float radius, float heading, int maxHeight, int minHeight)
+        /// <summary>
+        /// TASK_HELI_MISSION. missionType, TASK_VEHICLE_MISSION ile ayni numaralandirmayi
+        /// paylasir (dogrulanmis degerler icin <see cref="HeliMission"/> sabitlerini kullanin).
+        /// missionFlags icin <see cref="HeliMissionFlags"/> bit bayraklarini kullanin
+        /// (ozellikle inis gorevlerinde LandOnArrival | DontDoAvoidance olmadan helikopter
+        /// yere degmeden havada asili kalir).
+        /// </summary>
+        public static void TaskHeliMission(int pilot, int heli, int targetVehicle, int targetPed, Vector3 pos, int missionType,
+                                           float maxSpeed, float radius, float heading, int maxHeight, int minHeight,
+                                           int missionFlags = 0, float slowDistance = -1f)
         {
             Call(H_TASK_HELI_MISSION, pilot, heli, targetVehicle, targetPed, pos.X, pos.Y, pos.Z,
-                 missionFlag, maxSpeed, radius, heading, maxHeight, minHeight, -1f, 0);
+                 missionType, maxSpeed, radius, heading, maxHeight, minHeight, slowDistance, missionFlags);
         }
 
         public static void TaskStandGuard(int ped, Vector3 pos, float heading, string scenario)

@@ -194,5 +194,60 @@ namespace MafiaVIP
 
             return best;
         }
+
+        /// <summary>
+        /// Birden fazla savunmaci (koruma/mürettebat/hava birimi) icin hedef dagitimi.
+        /// Saf "en yakini sec" mantigi tum savunmacilarin ayni tehdide uşuşmesine
+        /// (ve digerlerinin acikta kalmasina) yol acar. Bu fonksiyon her savunmaciya
+        /// -zaten baskasina atanmis olsa bile- mesafeye gore bir hedef atar, ama
+        /// zaten kullanilan hedeflere kucuk bir "ceza mesafesi" ekleyerek dogal
+        /// bir dagilim saglar. Tehdit sayisi savunmaci sayisindan azsa birden fazla
+        /// savunmaci ayni hedefe atanabilir (bu beklenen ve dogru davranistir).
+        /// </summary>
+        public Dictionary<int, Ped> AssignTargets(IList<Ped> defenders)
+        {
+            Dictionary<int, Ped> assignment = new Dictionary<int, Ped>();
+            if (defenders == null || defenders.Count == 0 || _threats.Count == 0) return assignment;
+
+            Dictionary<int, int> usageCount = new Dictionary<int, int>();
+
+            for (int i = 0; i < defenders.Count; i++)
+            {
+                Ped defender = defenders[i];
+                if (!Utils.AlivePed(defender)) continue;
+
+                Ped best = null;
+                float bestScore = float.MaxValue;
+
+                for (int j = 0; j < _threats.Count; j++)
+                {
+                    Ped threat = _threats[j];
+                    if (!Utils.AlivePed(threat)) continue;
+
+                    float distance = threat.Position.DistanceTo(defender.Position);
+                    int used;
+                    usageCount.TryGetValue(threat.Handle, out used);
+
+                    // Her ek atama mesafeyi "daha uzakmis gibi" gostersin ki
+                    // digerleri baska hedeflere yonelsin.
+                    float score = distance + used * 20f;
+
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        best = threat;
+                    }
+                }
+
+                if (best == null) continue;
+
+                assignment[defender.Handle] = best;
+                int current;
+                usageCount.TryGetValue(best.Handle, out current);
+                usageCount[best.Handle] = current + 1;
+            }
+
+            return assignment;
+        }
     }
 }
