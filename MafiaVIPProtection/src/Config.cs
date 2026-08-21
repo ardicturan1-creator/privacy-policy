@@ -12,14 +12,9 @@ namespace MafiaVIP
     public sealed class Config
     {
         // ---------------- Tuslar ----------------
+        // Tek tus: menu. Baska modlarla tus catismasi yasanmasin diye tum hizli
+        // tuslar kaldirildi - her islem menu uzerinden yapilir.
         public Keys MenuKey = Keys.F7;
-        public Keys ModifierKey = Keys.None;          // Opsiyonel: hizli tuslar icin gerekli modifier
-        public Keys GuardsToggleKey = Keys.F8;
-        public Keys ConvoyToggleKey = Keys.F9;
-        public Keys AirSupportToggleKey = Keys.F10;
-        public Keys BackupKey = Keys.F11;
-        public Keys FormationCycleKey = Keys.None;
-        public Keys ClearAllKey = Keys.None;
 
         // ---------------- Genel ----------------
         public bool EnableBlips = true;
@@ -122,6 +117,20 @@ namespace MafiaVIP
         public float BackupSpawnDistance = 160f;
         public int BackupCooldown = 45000;
 
+        // ---------------- VIP Transfer ----------------
+        // Hiz/surus stili Convoy bolumundeki ayarlari (SpeedNormal, SpeedAggressive,
+        // DrivingStyleNormal, DrivingStyleAggressive, ConvoyMinDistance,
+        // ConvoyNoRoadsDistance, StuckSpeedThreshold, StuckTimeThreshold) kullanir.
+        public string[] VipTransferVehicleModels = { "kuruma2" };
+        public int VipTransferVehicleCount = 5;        // VIP araci dahil toplam
+        public int VipTransferGuardsPerEscort = 1;     // Escort araci basina ek koruma
+        public float VipTransferArrivalDistance = 9f;  // Varis kabul mesafesi (metre)
+        public int VipTransferDoorDelay = 1100;        // ms, kapi acma/kapama arasi bekleme
+        public int VipTransferBoardTimeout = 8000;      // ms, binis/inis icin AI gorevi bekleme suresi
+        public int VipTransferStageTimeoutPickup = 90000;   // ms, alis noktasina varis zaman asimi
+        public int VipTransferStageTimeoutTravel = 180000;  // ms, hedefe varis zaman asimi
+        public float VipTransferDepartDistance = 150f;      // Bu mesafeden sonra konvoy silinir
+
         // ==================================================================
         // Yukleme
         // ==================================================================
@@ -151,13 +160,6 @@ namespace MafiaVIP
 
                 // -------- Keys --------
                 c.MenuKey = ini.GetKey("Keys", "MenuKey", c.MenuKey);
-                c.ModifierKey = ini.GetKey("Keys", "ModifierKey", c.ModifierKey);
-                c.GuardsToggleKey = ini.GetKey("Keys", "GuardsToggleKey", c.GuardsToggleKey);
-                c.ConvoyToggleKey = ini.GetKey("Keys", "ConvoyToggleKey", c.ConvoyToggleKey);
-                c.AirSupportToggleKey = ini.GetKey("Keys", "AirSupportToggleKey", c.AirSupportToggleKey);
-                c.BackupKey = ini.GetKey("Keys", "BackupKey", c.BackupKey);
-                c.FormationCycleKey = ini.GetKey("Keys", "FormationCycleKey", c.FormationCycleKey);
-                c.ClearAllKey = ini.GetKey("Keys", "ClearAllKey", c.ClearAllKey);
 
                 // -------- General --------
                 c.EnableBlips = ini.GetBool("General", "EnableBlips", c.EnableBlips);
@@ -252,6 +254,17 @@ namespace MafiaVIP
                 c.BackupSquadSize = ini.GetInt("Backup", "SquadSize", c.BackupSquadSize);
                 c.BackupSpawnDistance = ini.GetFloat("Backup", "SpawnDistance", c.BackupSpawnDistance);
                 c.BackupCooldown = ini.GetInt("Backup", "Cooldown", c.BackupCooldown);
+
+                // -------- VipTransfer --------
+                c.VipTransferVehicleModels = ini.GetList("VipTransfer", "VehicleModels", c.VipTransferVehicleModels);
+                c.VipTransferVehicleCount = ini.GetInt("VipTransfer", "VehicleCount", c.VipTransferVehicleCount);
+                c.VipTransferGuardsPerEscort = ini.GetInt("VipTransfer", "GuardsPerEscort", c.VipTransferGuardsPerEscort);
+                c.VipTransferArrivalDistance = ini.GetFloat("VipTransfer", "ArrivalDistance", c.VipTransferArrivalDistance);
+                c.VipTransferDoorDelay = ini.GetInt("VipTransfer", "DoorDelay", c.VipTransferDoorDelay);
+                c.VipTransferBoardTimeout = ini.GetInt("VipTransfer", "BoardTimeout", c.VipTransferBoardTimeout);
+                c.VipTransferStageTimeoutPickup = ini.GetInt("VipTransfer", "StageTimeoutPickup", c.VipTransferStageTimeoutPickup);
+                c.VipTransferStageTimeoutTravel = ini.GetInt("VipTransfer", "StageTimeoutTravel", c.VipTransferStageTimeoutTravel);
+                c.VipTransferDepartDistance = ini.GetFloat("VipTransfer", "DepartDistance", c.VipTransferDepartDistance);
             }
             catch (Exception ex)
             {
@@ -291,6 +304,14 @@ namespace MafiaVIP
             StuckSpeedThreshold = Math.Max(0.3f, Math.Min(5f, StuckSpeedThreshold));
             StuckTimeThreshold = Math.Max(2000, Math.Min(30000, StuckTimeThreshold));
             ConvoyNoRoadsDistance = Math.Max(5f, Math.Min(60f, ConvoyNoRoadsDistance));
+            VipTransferVehicleCount = Math.Max(2, Math.Min(8, VipTransferVehicleCount));
+            VipTransferGuardsPerEscort = Math.Max(0, Math.Min(2, VipTransferGuardsPerEscort));
+            VipTransferArrivalDistance = Math.Max(4f, Math.Min(30f, VipTransferArrivalDistance));
+            VipTransferDoorDelay = Math.Max(300, Math.Min(5000, VipTransferDoorDelay));
+            VipTransferBoardTimeout = Math.Max(3000, Math.Min(30000, VipTransferBoardTimeout));
+            VipTransferStageTimeoutPickup = Math.Max(30000, Math.Min(300000, VipTransferStageTimeoutPickup));
+            VipTransferStageTimeoutTravel = Math.Max(60000, Math.Min(600000, VipTransferStageTimeoutTravel));
+            VipTransferDepartDistance = Math.Max(50f, Math.Min(400f, VipTransferDepartDistance));
 
             if (GuardModels == null || GuardModels.Length == 0)
                 GuardModels = new[] { "s_m_m_highsec_01" };
@@ -298,6 +319,8 @@ namespace MafiaVIP
                 GuardWeapons = new[] { "CarbineRifle" };
             if (AirVehicleModels == null || AirVehicleModels.Length == 0)
                 AirVehicleModels = new[] { "buzzard" };
+            if (VipTransferVehicleModels == null || VipTransferVehicleModels.Length == 0)
+                VipTransferVehicleModels = new[] { "kuruma2" };
         }
 
         // ==================================================================
@@ -330,14 +353,9 @@ namespace MafiaVIP
             sb.AppendLine("; ==========================================================");
             sb.AppendLine();
             sb.AppendLine("[Keys]");
+            sb.AppendLine("; Tek tus: menu. Baska modlarla catisma yasanmasin diye tum islemler");
+            sb.AppendLine("; (koruma, konvoy, hava destegi, takviye, VIP transfer...) menu icinden yapilir.");
             sb.AppendLine("MenuKey = F7                 ; Ana menu");
-            sb.AppendLine("ModifierKey = None           ; Asagidaki hizli tuslar icin zorunlu modifier (None = yok)");
-            sb.AppendLine("GuardsToggleKey = F8         ; Yakin koruma ac/kapa");
-            sb.AppendLine("ConvoyToggleKey = F9         ; Konvoy ac/kapa");
-            sb.AppendLine("AirSupportToggleKey = F10    ; Hava destegi ac/kapa");
-            sb.AppendLine("BackupKey = F11              ; Yedek birlik cagir");
-            sb.AppendLine("FormationCycleKey = None     ; Formasyon degistir");
-            sb.AppendLine("ClearAllKey = None           ; Tum ekipleri temizle");
             sb.AppendLine();
             sb.AppendLine("[General]");
             sb.AppendLine("EnableBlips = true");
@@ -435,6 +453,20 @@ namespace MafiaVIP
             sb.AppendLine("SquadSize = 4");
             sb.AppendLine("SpawnDistance = 160");
             sb.AppendLine("Cooldown = 45000");
+            sb.AppendLine();
+            sb.AppendLine("[VipTransfer]");
+            sb.AppendLine("; Hiz/surus stili [Convoy] bolumundeki ayarlari kullanir (SpeedNormal,");
+            sb.AppendLine("; SpeedAggressive, DrivingStyleNormal/Aggressive, MinDistance, NoRoadsDistance,");
+            sb.AppendLine("; StuckSpeedThreshold, StuckTimeThreshold - bkz. [General] ve [Convoy]).");
+            sb.AppendLine("VehicleModels = kuruma2      ; Zirhli VIP transfer araclari (hepsi ayni/karisik olabilir)");
+            sb.AppendLine("VehicleCount = 5             ; VIP araci dahil toplam arac sayisi");
+            sb.AppendLine("GuardsPerEscort = 1          ; Escort araci basina ek koruma");
+            sb.AppendLine("ArrivalDistance = 9          ; Varis kabul mesafesi (metre)");
+            sb.AppendLine("DoorDelay = 1100             ; ms, kapi acma/kapama arasi bekleme");
+            sb.AppendLine("BoardTimeout = 8000          ; ms, binis/inis gorevi icin bekleme (sonra zorla isinlanir)");
+            sb.AppendLine("StageTimeoutPickup = 90000   ; ms, alis noktasina varis zaman asimi");
+            sb.AppendLine("StageTimeoutTravel = 180000  ; ms, hedefe varis zaman asimi (ulasilamazsa mevcut yerde durur)");
+            sb.AppendLine("DepartDistance = 150         ; Bu mesafeden sonra konvoy silinir");
             return sb.ToString();
         }
     }

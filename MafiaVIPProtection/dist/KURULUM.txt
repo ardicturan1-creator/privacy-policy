@@ -25,17 +25,13 @@ kaynak kodu kendi surumunuze karsi yeniden derleyin (bkz. ../README.md).
 
 TUSLAR
 ------
-F7    Ana menu
-F8    Yakin koruma ekibi ac/kapa
-F9    Konvoy ac/kapa
-F10   Hava destegi +1 BIRIM cagir (ayni anda birden fazla helikopter aktif olabilir)
-F11   Takviye birlik cagir (kara)
+TEK TUS: F7 (Ana menu).
 
-Hava destegini geri gondermek menuden yapilir: Hava Destegi > Son Birimi / Tumunu Geri Gonder
-(F10'un "ac/kapa" degil "+1 birim ekle" olmasinin sebebi budur — coklu birim ozelligi.)
-
-Tuslar MafiaVIPProtection.ini icindeki [Keys] bolumunden degistirilebilir.
-Baska modlarla cakisirsa: ModifierKey = LControlKey yapin (Ctrl + F8 gibi olur).
+v1.2'den itibaren baska hicbir kisayol tus YOK — baska modlarla tus
+catismasi yasanmasin diye tum islemler (koruma, konvoy, hava destegi,
+takviye, VIP transfer, formasyon degistirme, tumunu temizle...) SADECE
+F7 menusu icinden yapiliyor. Menu tusu MafiaVIPProtection.ini icindeki
+[Keys] bolumunden degistirilebilir.
 
 
 SORUN GIDERME
@@ -58,8 +54,31 @@ LemonUI.SHVDN3.dll ucuncu parti bir kutuphanedir (MIT lisansi),
 kolaylik olsun diye pakete dahil edilmistir.
 
 
-BU SURUMDE DUZELTILEN KRITIK HATALAR (v1.1)
---------------------------------------------
+v1.2 YENILIKLERI
+-----------------
+- YENI: "VIP Transfer" ozelligi (menu: VIP Transfer bolumu).
+  Bulundugunuz konuma 5 agir zirhli konvoy araci (varsayilan: kuruma2) gelir,
+  VIP araci soforu inip arka kapinizi acar, siz binersiniz, kapi kapanir ve
+  sofor de biner. Ardindan haritayi acip normal sekilde bir GPS hedefi
+  (waypoint) isaretleyin ve menuden "Hedefi Onayla"ya basin - konvoy sizi o
+  noktaya goturur ve orada ayni ritüelle (kapi acilir, inersiniz, kapi
+  kapanir) dikkatlice birakir, sonra ayrilir.
+    Kullanim: VIP Transfer > Transferi Baslat  ->  haritadan hedef isaretle
+              ->  VIP Transfer > Hedefi Onayla (Waypoint)
+    Iptal:    VIP Transfer > Transferi Iptal Et (her asamada guvenli calisir,
+              araçtaysaniz once disari alinirsiniz)
+  Her bekleme asamasinin bir zaman asimi ve garantili bir yedek yolu vardir
+  (AI gorevi basarisiz olursa dogrudan isinlanarak tamamlanir) - islem
+  sonsuza kadar takilip kalmaz. [VipTransfer] bolumunden arac modeli/sayisi/
+  zaman asimlari ayarlanabilir.
+
+- DEGISTI: Tum kisayol tuslari (F8/F9/F10/F11 ve formasyon/temizle tuslari)
+  KALDIRILDI - baska modlarla tus catismasi yasanmasin diye artik sadece F7
+  menusu var, her islem menuden yapiliyor (asagidaki TUSLAR bolumune bakin).
+
+
+v1.1'DE DUZELTILEN KRITIK HATALAR
+-----------------------------------
 Onceki surumde native (oyun motoru) gorev kodlarinda karisiklik vardi:
 
 - Hava destegi "daire ciz" komutu yanlislikla "kac" (Flee) koduyla ayniydi —

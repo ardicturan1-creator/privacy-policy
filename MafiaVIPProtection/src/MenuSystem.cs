@@ -19,22 +19,25 @@ namespace MafiaVIP
         private readonly ConvoyManager _convoy;
         private readonly AirSupport _air;
         private readonly BackupManager _backup;
+        private readonly VipTransfer _transfer;
         private readonly Action _clearAll;
         private readonly Action _reloadConfig;
 
         private readonly ObjectPool _pool = new ObjectPool();
         private NativeMenu _main;
         private NativeItem _statusItem;
+        private NativeItem _transferStatusItem;
         private int _lastStatusUpdate;
 
         public MenuSystem(Config cfg, CloseProtection guards, ConvoyManager convoy, AirSupport air,
-                          BackupManager backup, Action clearAll, Action reloadConfig)
+                          BackupManager backup, VipTransfer transfer, Action clearAll, Action reloadConfig)
         {
             _cfg = cfg;
             _guards = guards;
             _convoy = convoy;
             _air = air;
             _backup = backup;
+            _transfer = transfer;
             _clearAll = clearAll;
             _reloadConfig = reloadConfig;
 
@@ -73,6 +76,9 @@ namespace MafiaVIP
                 _guards.AliveCount,
                 _convoy.Active ? _convoy.UnitCount + " arac" : "kapali",
                 _air.UnitCount, _air.MaxUnits);
+
+            if (_transferStatusItem != null)
+                _transferStatusItem.Title = "VIP Transfer Durumu: " + _transfer.StatusText;
         }
 
         // ==================================================================
@@ -86,11 +92,13 @@ namespace MafiaVIP
             NativeMenu guardsMenu = BuildGuardsMenu();
             NativeMenu convoyMenu = BuildConvoyMenu();
             NativeMenu airMenu = BuildAirMenu();
+            NativeMenu transferMenu = BuildTransferMenu();
             NativeMenu generalMenu = BuildGeneralMenu();
 
             _main.AddSubMenu(guardsMenu);
             _main.AddSubMenu(convoyMenu);
             _main.AddSubMenu(airMenu);
+            _main.AddSubMenu(transferMenu);
             _main.AddSubMenu(generalMenu);
 
             _statusItem = new NativeItem("Durum: -", "Aktif birimlerin ozeti.");
@@ -303,7 +311,38 @@ namespace MafiaVIP
         }
 
         // ------------------------------------------------------------------
-        // 4) Genel
+        // 4) VIP Transfer
+        // ------------------------------------------------------------------
+        private NativeMenu BuildTransferMenu()
+        {
+            NativeMenu menu = new NativeMenu("VIP Transfer", "OZEL SOFOR HIZMETI");
+            _pool.Add(menu);
+
+            NativeItem start = new NativeItem("Transferi Baslat",
+                "Bulundugunuz konuma zirhli bir konvoy gelir, kapinizi acar ve sizi bindirir. " +
+                "Ardindan haritadan hedef isaretleyip 'Hedefi Onayla'ya basmaniz beklenir.");
+            start.Activated += (s, e) => Safe(() => _transfer.Start());
+            menu.Add(start);
+
+            NativeItem confirm = new NativeItem("Hedefi Onayla (Waypoint)",
+                "Haritayi acip bir GPS hedefi isaretledikten sonra buna basin - konvoy o noktaya hareket eder.");
+            confirm.Activated += (s, e) => Safe(() => _transfer.ConfirmDestination());
+            menu.Add(confirm);
+
+            NativeItem cancel = new NativeItem("Transferi Iptal Et",
+                "Devam eden VIP transferini guvenli sekilde iptal eder (araçtaysaniz once disari alinirsiniz).");
+            cancel.Activated += (s, e) => Safe(() => _transfer.Cancel());
+            menu.Add(cancel);
+
+            _transferStatusItem = new NativeItem("VIP Transfer Durumu: Kapali");
+            _transferStatusItem.Enabled = false;
+            menu.Add(_transferStatusItem);
+
+            return menu;
+        }
+
+        // ------------------------------------------------------------------
+        // 5) Genel
         // ------------------------------------------------------------------
         private NativeMenu BuildGeneralMenu()
         {
@@ -316,7 +355,7 @@ namespace MafiaVIP
             menu.Add(backup);
 
             NativeItem clear = new NativeItem("Tum Ekipleri Temizle",
-                "Koruma, konvoy ve hava destegini siler.");
+                "Koruma, konvoy, hava destegi ve VIP transferini siler.");
             clear.Activated += (s, e) => Safe(() => { if (_clearAll != null) _clearAll(); });
             menu.Add(clear);
 
@@ -359,17 +398,8 @@ namespace MafiaVIP
             NativeMenu menu = new NativeMenu("Yardim", "TUS ATAMALARI");
             _pool.Add(menu);
 
-            string modifier = _cfg.ModifierKey == System.Windows.Forms.Keys.None
-                ? string.Empty
-                : _cfg.ModifierKey + " + ";
-
-            AddInfo(menu, "Menu", _cfg.MenuKey.ToString());
-            AddInfo(menu, "Yakin koruma ac/kapa", modifier + _cfg.GuardsToggleKey);
-            AddInfo(menu, "Konvoy ac/kapa", modifier + _cfg.ConvoyToggleKey);
-            AddInfo(menu, "Hava destegi +1 birim cagir", modifier + _cfg.AirSupportToggleKey);
-            AddInfo(menu, "Yedek birlik", modifier + _cfg.BackupKey);
-            AddInfo(menu, "Formasyon degistir", modifier + _cfg.FormationCycleKey);
-            AddInfo(menu, "Tumunu temizle", modifier + _cfg.ClearAllKey);
+            AddInfo(menu, "Menu (tek tus)", _cfg.MenuKey.ToString());
+            AddInfo(menu, "Diger tum islemler", "Sadece bu menuden");
             AddInfo(menu, "Ayar dosyasi", "scripts/MafiaVIPProtection.ini");
 
             return menu;

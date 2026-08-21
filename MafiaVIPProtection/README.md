@@ -6,7 +6,18 @@ Mafya tarzi, yuksek profilli bir suc orgutunun **VIP koruma birimi**. Uc katman:
 2. **Konvoy / Motorcade** — lead + destek araclari, gercekci eskort AI, duruşta 360° savunma
 3. **Hava Savunma ve Destek** — Buzzard / Savage / Valkyrie / Annihilator + Cargobob tahliye & birlik indirme
 
-Ek olarak: kara yoluyla **takviye (backup)** sistemi, tam `.ini` yapilandirmasi, LemonUI menusu, blip'ler.
+Ek olarak: kara yoluyla **takviye (backup)** sistemi, sinematik **VIP Transfer** (ozel sofor
+hizmeti), tam `.ini` yapilandirmasi, LemonUI menusu, blip'ler.
+
+### v1.2 — VIP Transfer ve tek-tus (F7) yapisi
+
+- **YENI: VIP Transfer.** Menuden baslatilir: bulundugunuz konuma 5 agir zirhli konvoy
+  araci gelir, VIP araci soforu inip arka kapinizi acar, siz binersiniz, kapi kapanir,
+  sofor biner; ardindan haritadan bir GPS hedefi isaretleyip menuden onaylarsiniz,
+  konvoy sizi oraya goturur ve ayni ritüelle dikkatlice birakir. Tamamen bagimsiz bir
+  sistemdir, mevcut Koruma/Konvoy/Hava/Takviye sistemlerine dokunmaz. Detay: [§2.5](#25-vip-transfer).
+- **DEGISTI: Tum kisayol tuslari kaldirildi.** Baska modlarla tus catismasi yasanmasin
+  diye artik yalnizca **F7** var; her islem menuden yapiliyor.
 
 ### v1.1 — Kritik duzeltmeler ve AI pekistirmesi
 
@@ -84,17 +95,13 @@ Hata ayiklama gunlugu: `scripts\MafiaVIPProtection.log` (her oyun oturumunda sif
 
 | Tus | Islev |
 |---|---|
-| **F7** | Ana menuyu ac / kapa |
-| **F8** | Yakin koruma ekibini cagir / dagit |
-| **F9** | Konvoyu olustur / dagit |
-| **F10** | Hava destegine **+1 birim** ekle (limite kadar coklu birim aktif olabilir) |
-| **F11** | Kara yoluyla takviye birlik cagir |
-| (ayarlanabilir) | Formasyon degistir — `FormationCycleKey` |
-| (ayarlanabilir) | Tum ekipleri temizle — `ClearAllKey` |
+| **F7** | Ana menuyu ac / kapa — **tek tus budur** |
 
-Tuslar `.ini` icinden degistirilebilir. Baska modlarla cakisma yasarsaniz
-`[Keys] ModifierKey = LControlKey` yaparak hizli tuslari `Ctrl + F8` gibi
-kombinasyona cevirebilirsiniz (menu tusu modifier istemez).
+v1.2'den itibaren baska hicbir kisayol tus yok: koruma, konvoy, hava destegi,
+takviye, VIP transfer, formasyon degistirme, tumunu temizle — hepsi F7 menusu
+icinden yapilir. Bu, baska modlarla yasanabilecek tus catismalarini tamamen
+ortadan kaldirmak icin bilincli bir tasarim tercihidir. Menu tusu `.ini`
+icindeki `[Keys] MenuKey` ile degistirilebilir.
 
 ### 2.2 Menu yapisi
 
@@ -124,6 +131,11 @@ MAFIA VIP
 │  ├─ Otomatik Engaje
 │  ├─ Cargobob - Tahliye
 │  └─ Cargobob - Birlik Indir
+├─ VIP Transfer
+│  ├─ Transferi Baslat
+│  ├─ Hedefi Onayla (Waypoint)
+│  ├─ Transferi Iptal Et
+│  └─ VIP Transfer Durumu (canli metin)
 └─ Genel
    ├─ Yedek Birlik Cagir (Kara)
    ├─ Tum Ekipleri Temizle
@@ -166,6 +178,44 @@ farketmeksizin Agresif davranir. `[General] CodeRedEnabled = false` ile kapatila
 
 Renk ve ikonlar `.ini` icinde sayisal olarak degistirilebilir (`BlipColor`, `BlipSprite`).
 
+### 2.5 VIP Transfer
+
+Sinematik bir "ozel sofor" hizmeti — mevcut Koruma/Konvoy/Hava/Takviye sistemlerinden
+tamamen bagimsiz, ayri bir modul (`VipTransfer.cs`).
+
+**Akis:**
+
+1. **VIP Transfer → Transferi Baslat.** Bulundugunuz konuma `VehicleCount` (varsayilan 5)
+   agir zirhli arac gelir (`VehicleModels`, varsayilan `kuruma2`). Ilk arac VIP aracidir,
+   digerleri capraz-arka pozisyonlarda escort eder (Konvoy sistemiyle ayni, kanitlanmis
+   `TASK_VEHICLE_ESCORT` teknigi — ama kendi bagimsiz kopyasi).
+2. Konvoy yaninıza gelince VIP aracinin soforu iner, size en yakin arka kapiyi acar
+   (SHVDN'in `Vehicle.Doors[VehicleDoorIndex...]` API'si ile — resmi kaynaktan
+   dogrulanmis kapi/koltuk esleme, bkz. `NativeConstants.cs`/`Natives.cs` yorumlari).
+3. Siz arka koltuga binersiniz (once dogal giris animasyonu denenir, 8 saniye icinde
+   tamamlanmazsa dogrudan koltuga isinlanirsiniz — asla takilip kalmaz).
+4. Kapi kapanir, sofor biner, ekranda **"Haritayi acip hedefi isaretleyin"** uyarisi
+   cikar.
+5. **Oyunun kendi haritasini/duraklat menusunu acip normal sekilde bir GPS hedefi
+   (waypoint) isaretleyin**, sonra **VIP Transfer → Hedefi Onayla**'ya basin.
+   (Haritayi programatik olarak acan riskli/surume bagimli native'ler yerine, oyunun
+   her surumunde calismasi garanti olan bu yontem kullanildi — `World.WaypointBlip` /
+   `World.WaypointPosition`.)
+6. Konvoy hedefe hareket eder, varinca ayni ritüelle (kapi acilir, inersiniz, kapi
+   kapanir) dikkatlice birakir, sonra uzaklasip kendini temizler.
+
+**Guvenilirlik:** her bekleme asamasinin bir zaman asimi ve garantili bir yedek yolu
+vardir (`VipTransferBoardTimeout`, `VipTransferStageTimeoutPickup/Travel`) — AI gorevi
+basarisiz olursa (pathing, dar sokak, ulasilamayan hedef...) dogrudan isinlanarak
+tamamlanir, islem hicbir zaman sonsuza kadar askida kalmaz. Konvoy araclari icin
+sikisma tespiti de vardir (Convoy'daki ile ayni mekanizma). Oyuncu yolculuk sirasinda
+kendi istegiyle araçtan inerse transfer otomatik ve guvenli sekilde iptal edilir.
+**Transferi Iptal Et** her asamada calisir; araçtaysaniz once guvenli bir noktaya
+cikarilirsiniz (arac direkt silinmez).
+
+VIP aracinda soforun yaninda (on koltuk) bir koruma da bulunur — sofor vurulursa
+onun yerine gecer, boylece transfer bir surucusuz araç yuzunden takilip kalmaz.
+
 ---
 
 ## 3. Ayar Dosyasi (`MafiaVIPProtection.ini`)
@@ -180,6 +230,7 @@ Tum bolumler ve anahtarlar dosyanin icinde aciklamalidir. Ozet:
 | `[Convoy]` | VIP araci, lead/destek arac modelleri ve sayilari, arac basina ekip, hiz ve surus stilleri, durusta inme, zirhlandirma, renk/cam filmi, yol-disi mesafesi, blip |
 | `[AirSupport]` | Hava araci listesi, pilot modeli, mürettebat sayisi, **MaxAirUnits (coklu birim limiti)**, yukseklik/yaricap/hiz, otomatik engaje, cargobob modeli, inis zaman asimi, blip |
 | `[Backup]` | Takviye araci, ekip buyuklugu, spawn mesafesi, bekleme suresi |
+| `[VipTransfer]` | Arac modeli/sayisi, escort basina koruma, varis mesafesi, kapi gecikmesi, binis/varis zaman asimlari (hiz/surus ayarlari `[Convoy]`'dan paylasilir) |
 
 Ornek — daha sert bir ekip:
 
@@ -238,6 +289,7 @@ uygulayabilirsiniz (tum aktif birimler temizlenir, ayarlar bastan okunur).
 | `ConvoyManager.cs` | Konvoy, eskort rolleri, hiz modlari, 360° mevzilenme |
 | `AirSupport.cs` | Helikopter eskortu/saldirisi, Cargobob tahliye & birlik indirme |
 | `BackupManager.cs` | Kara yoluyla takviye birlik |
+| `VipTransfer.cs` | VIP Transfer ozel sofor hizmeti — bagimsiz, diger sistemlere dokunmaz |
 | `MenuSystem.cs` | LemonUI menuleri |
 
 ### Performans
@@ -287,6 +339,13 @@ cesetler ayarlanan sureden sonra silinir, script kapatilirken (`Aborted`) her se
 6. **Cok fazla birim** (8 koruma + 4 arac + `MaxAirUnits` helikopter) dusuk sistemlerde FPS
    dusurebilir; ped/arac limitine takilirsaniz spawn basarisiz olur ve `.log` dosyasina yazilir.
 7. Mod yalnizca **single-player** icindir. FiveM / GTA Online ile kullanilamaz ve kullanilmamalidir.
+8. **VIP Transfer combat AI icermez.** Bu ozellik bilincli olarak sadece bir "ozel sofor
+   hizmeti"dir (nakliye), mevcut sistemlere dokunmamasi icin tehdit tepkisi eklenmedi.
+   Yolculuk sirasinda saldiriya ugrarsaniz konvoy kendini savunmaz. Ates gucu isterseniz
+   Yakin Koruma veya Konvoy sistemini ayrica cagirin.
+9. **VIP Transfer haritayi kendisi acmaz** (surume bagimli, belgelenmemis native'lere
+   guvenmemek icin bilincli tercih) — oyunun kendi duraklat menusu/haritasindan normal
+   sekilde bir GPS hedefi isaretlemeniz, sonra menuden onaylamaniz gerekir.
 
 ## 6. Gelistirme Onerileri (yol haritasi)
 
@@ -296,3 +355,4 @@ cesetler ayarlanan sureden sonra silinir, script kapatilirken (`Aborted`) her se
 - Korumalarin sesli tepkileri (`PLAY_PED_AMBIENT_SPEECH_NATIVE` ile "Contact!", "Move!")
 - Kaydedilebilir profil sistemi (birden fazla ekip sablonu)
 - Menu icinde canli ekip listesi (her korumanin can/zirh durumu)
+- VIP Transfer icin coklu durak / rota (birden fazla waypoint arasi ugrak)

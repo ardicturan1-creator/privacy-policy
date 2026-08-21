@@ -20,6 +20,7 @@ namespace MafiaVIP
         private const int ConvoyInterval = 900;
         private const int AirInterval = 1200;
         private const int BackupInterval = 1000;
+        private const int TransferInterval = 500;
 
         private Config _cfg;
         private ThreatScanner _scanner;
@@ -27,6 +28,7 @@ namespace MafiaVIP
         private ConvoyManager _convoy;
         private AirSupport _air;
         private BackupManager _backup;
+        private VipTransfer _transfer;
         private MenuSystem _menu;
 
         private bool _initialized;
@@ -37,6 +39,7 @@ namespace MafiaVIP
         private int _nextConvoy;
         private int _nextAir;
         private int _nextBackup;
+        private int _nextTransfer;
 
         public MafiaVipProtection()
         {
@@ -61,12 +64,13 @@ namespace MafiaVIP
             _convoy = new ConvoyManager(_cfg, _scanner);
             _air = new AirSupport(_cfg, _scanner);
             _backup = new BackupManager(_cfg);
+            _transfer = new VipTransfer(_cfg);
 
             // Yakin koruma, oyuncunun aracinda yer kalmazsa konvoy araclarini kullanir.
             _guards.SupportVehicleProvider = _convoy.FindVehicleWithFreeSeat;
             _convoy.Behavior = _guards.Behavior;
 
-            _menu = new MenuSystem(_cfg, _guards, _convoy, _air, _backup, ClearAll, ReloadConfig);
+            _menu = new MenuSystem(_cfg, _guards, _convoy, _air, _backup, _transfer, ClearAll, ReloadConfig);
 
             _initialized = true;
             Logger.Info("Mafia VIP Protection yuklendi.");
@@ -91,6 +95,7 @@ namespace MafiaVIP
                 if (_convoy != null) _convoy.Dismiss(true);
                 if (_air != null) _air.CleanupAll();
                 if (_backup != null) _backup.CleanupAll();
+                if (_transfer != null) _transfer.CleanupAll();
                 if (_scanner != null) _scanner.Clear();
 
                 Utils.Notify("Tum ekipler temizlendi.");
@@ -159,6 +164,12 @@ namespace MafiaVIP
                     _nextBackup = now + BackupInterval;
                     _backup.Update();
                 }
+
+                if (now >= _nextTransfer)
+                {
+                    _nextTransfer = now + TransferInterval;
+                    _transfer.Update();
+                }
             }
             catch (Exception ex)
             {
@@ -169,61 +180,24 @@ namespace MafiaVIP
         // ==================================================================
         // Tuslar
         // ==================================================================
+        /// <summary>
+        /// Tek tus: menu. Baska modlarla tus catismasi yasanmasin diye tum
+        /// islemler (koruma, konvoy, hava destegi, takviye, VIP transfer,
+        /// formasyon, temizle...) yalniz F7 menusu uzerinden yapilir.
+        /// </summary>
         private void OnKeyDown(object sender, KeyEventArgs e)
         {
             try
             {
                 if (!_initialized || _cfg == null) return;
 
-                // Menu tusu modifier gerektirmez.
                 if (e.KeyCode == _cfg.MenuKey)
-                {
                     _menu.Toggle();
-                    return;
-                }
-
-                if (!ModifierHeld()) return;
-
-                if (e.KeyCode == _cfg.GuardsToggleKey && _cfg.GuardsToggleKey != Keys.None)
-                {
-                    _guards.Toggle();
-                    _convoy.Behavior = _guards.Behavior;
-                }
-                else if (e.KeyCode == _cfg.ConvoyToggleKey && _cfg.ConvoyToggleKey != Keys.None)
-                {
-                    _convoy.Toggle();
-                }
-                else if (e.KeyCode == _cfg.AirSupportToggleKey && _cfg.AirSupportToggleKey != Keys.None)
-                {
-                    // Coklu birim destegi: her basis bir birim daha ekler (limite kadar).
-                    // Geri gondermek icin menudeki "Son Birimi / Tumunu Geri Gonder" kullanilir.
-                    _air.CallUnit();
-                }
-                else if (e.KeyCode == _cfg.BackupKey && _cfg.BackupKey != Keys.None)
-                {
-                    _backup.Call(_guards.Adopt);
-                }
-                else if (e.KeyCode == _cfg.FormationCycleKey && _cfg.FormationCycleKey != Keys.None)
-                {
-                    _guards.CycleFormation();
-                }
-                else if (e.KeyCode == _cfg.ClearAllKey && _cfg.ClearAllKey != Keys.None)
-                {
-                    ClearAll();
-                }
             }
             catch (Exception ex)
             {
                 Logger.Error("OnKeyDown hatasi", ex);
             }
-        }
-
-        /// <summary>ModifierKey ayarliysa basili olmasini bekler.</summary>
-        private bool ModifierHeld()
-        {
-            if (_cfg.ModifierKey == Keys.None) return true;
-            try { return Game.IsKeyPressed(_cfg.ModifierKey); }
-            catch { return true; }
         }
 
         // ==================================================================
@@ -237,6 +211,7 @@ namespace MafiaVIP
                 if (_convoy != null) _convoy.Dismiss(true);
                 if (_air != null) _air.CleanupAll();
                 if (_backup != null) _backup.CleanupAll();
+                if (_transfer != null) _transfer.CleanupAll();
                 Logger.Info("Script kapatildi, tum varliklar temizlendi.");
             }
             catch (Exception ex)
