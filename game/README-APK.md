@@ -17,7 +17,7 @@ derleyebileceğin şekilde hazırladım.
 ## Gereksinimler (kendi bilgisayarında)
 
 1. **Node.js 18+** — https://nodejs.org
-2. **JDK 17** (Android Gradle Plugin 8.x için gerekli)
+2. **JDK 21** (Capacitor'ın Android kütüphaneleri bu sürümü hedefliyor)
 3. **Android SDK** — en kolay yol [Android Studio](https://developer.android.com/studio)
    kurmak; kurulumda "Android SDK" ve "Android SDK Platform-Tools" seçili
    olsun. Studio ilk açılışta gerekli SDK bileşenlerini indirir.
