@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#05030f" />
+    <meta name="description" content="Nebula Drift 3D - gelişmiş 3D uzay kaçış ve savaş oyunu" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>Nebula Drift 3D</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene"></canvas>
+
+      <div id="hud">
+        <div id="hud-top">
+          <div class="hud-pill" id="score-pill">SKOR <span id="score">0</span></div>
+          <div class="hud-pill" id="combo-pill">x<span id="combo">1</span></div>
+          <div class="hud-pill" id="wave-pill">DALGA <span id="wave">1</span></div>
+        </div>
+        <div id="bars">
+          <div class="bar-wrap">
+            <div class="bar-label">GÖVDE</div>
+            <div class="bar-track"><div class="bar-fill" id="hull-fill"></div></div>
+          </div>
+          <div class="bar-wrap">
+            <div class="bar-label">KALKAN</div>
+            <div class="bar-track"><div class="bar-fill shield" id="shield-fill"></div></div>
+          </div>
+          <div class="bar-wrap">
+            <div class="bar-label">BOOST</div>
+            <div class="bar-track"><div class="bar-fill boost" id="boost-fill"></div></div>
+          </div>
+        </div>
+        <div id="boss-bar-wrap" class="hidden">
+          <div class="bar-label" id="boss-name">SEKTÖR MUHAFIZI</div>
+          <div class="bar-track boss"><div class="bar-fill boss" id="boss-fill"></div></div>
+        </div>
+      </div>
+
+      <button id="fire-btn" aria-label="Ateş Et">
+        <svg viewBox="0 0 24 24"><path d="M12 2 L15 10 L22 12 L15 14 L12 22 L9 14 L2 12 L9 10 Z"/></svg>
+      </button>
+      <button id="boost-btn" aria-label="Boost">
+        <svg viewBox="0 0 24 24"><path d="M13 2 L4 14 H11 L9 22 L20 9 H13 Z"/></svg>
+      </button>
+
+      <div id="start-screen" class="overlay">
+        <div class="panel">
+          <h1>NEBULA <span>DRIFT</span> 3D</h1>
+          <p class="subtitle">Asteroit tarlasından geç, düşman dronlarını avla, sektör muhafızlarını yen.</p>
+          <div class="controls-hint">
+            <div><strong>Sürükle</strong> — Gemiyi yönet</div>
+            <div><strong>Ateş</strong> — Düşmanları vur</div>
+            <div><strong>Boost</strong> — Hız patlaması + geçici zırh</div>
+          </div>
+          <button id="start-btn" class="cta">OYUNA BAŞLA</button>
+          <div class="best-score">En iyi skor: <span id="best-score">0</span></div>
+        </div>
+      </div>
+
+      <div id="pause-btn" class="icon-btn hidden">❚❚</div>
+
+      <div id="pause-screen" class="overlay hidden">
+        <div class="panel">
+          <h2>DURAKLATILDI</h2>
+          <button id="resume-btn" class="cta">DEVAM ET</button>
+          <button id="quit-btn" class="cta ghost">ANA MENÜ</button>
+        </div>
+      </div>
+
+      <div id="gameover-screen" class="overlay hidden">
+        <div class="panel">
+          <h2 id="gameover-title">GEMİ İMHA EDİLDİ</h2>
+          <div class="final-stats">
+            <div>Skor: <span id="final-score">0</span></div>
+            <div>Ulaşılan Dalga: <span id="final-wave">1</span></div>
+            <div>En İyi: <span id="final-best">0</span></div>
+          </div>
+          <button id="retry-btn" class="cta">TEKRAR DENE</button>
+        </div>
+      </div>
+
+      <div id="wave-toast" class="hidden"></div>
+      <div id="orientation-warning" class="overlay hidden">
+        <div class="panel"><p>En iyi deneyim için cihazınızı yatay çevirin (opsiyonel).</p></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

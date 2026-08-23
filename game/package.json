@@ -1,0 +1,22 @@
+{
+  "name": "game",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
+    "playwright": "^1.62.1",
+    "vite": "^8.2.0"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "cannon-es": "^0.20.0",
+    "three": "^0.185.1"
+  }
+}

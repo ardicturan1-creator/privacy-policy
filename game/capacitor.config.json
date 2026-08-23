@@ -1,0 +1,12 @@
+{
+  "appId": "com.nebuladrift.game",
+  "appName": "Nebula Drift 3D",
+  "webDir": "dist",
+  "backgroundColor": "#05030f",
+  "android": {
+    "backgroundColor": "#05030f"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="80%">
+      <stop offset="0%" stop-color="#241a52"/>
+      <stop offset="55%" stop-color="#0e0a2c"/>
+      <stop offset="100%" stop-color="#05030f"/>
+    </radialGradient>
+    <linearGradient id="hull" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f2f4ff"/>
+      <stop offset="100%" stop-color="#9aa6e0"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4bf5ff"/>
+      <stop offset="100%" stop-color="#9d4bff"/>
+    </linearGradient>
+    <radialGradient id="engine" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="35%" stop-color="#4bf5ff"/>
+      <stop offset="100%" stop-color="rgba(75,245,255,0)"/>
+    </radialGradient>
+    <radialGradient id="nebula1" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff3d9a" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#ff3d9a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="nebula2" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#4bf5ff" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#4bf5ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <circle cx="130" cy="380" r="150" fill="url(#nebula1)"/>
+  <circle cx="400" cy="150" r="170" fill="url(#nebula2)"/>
+
+  <g fill="#ffffff">
+    <circle cx="90" cy="90" r="3.2" opacity="0.9"/>
+    <circle cx="420" cy="70" r="2.4" opacity="0.7"/>
+    <circle cx="460" cy="200" r="2.8" opacity="0.8"/>
+    <circle cx="60" cy="240" r="2.2" opacity="0.6"/>
+    <circle cx="440" cy="420" r="2.6" opacity="0.7"/>
+    <circle cx="70" cy="440" r="3" opacity="0.8"/>
+    <circle cx="250" cy="60" r="2.2" opacity="0.6"/>
+    <circle cx="380" cy="330" r="2" opacity="0.5"/>
+  </g>
+
+  <g transform="translate(256,300)">
+    <ellipse cx="0" cy="118" rx="60" ry="34" fill="url(#engine)" opacity="0.85"/>
+    <polygon points="0,-170 96,120 0,84 -96,120" fill="url(#hull)"/>
+    <polygon points="0,-170 46,86 0,84 -46,86" fill="url(#glow)"/>
+    <polygon points="-96,120 -60,150 -20,110" fill="#161a30"/>
+    <polygon points="96,120 60,150 20,110" fill="#161a30"/>
+    <ellipse cx="0" cy="0" rx="26" ry="34" fill="#0d0a22"/>
+    <ellipse cx="0" cy="-6" rx="17" ry="23" fill="#4bf5ff" opacity="0.9"/>
+  </g>
+</svg>
