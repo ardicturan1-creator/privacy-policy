@@ -15,6 +15,8 @@
 
 mod boot;
 mod hw;
+mod merkle;
+mod obsidian;
 mod planner;
 
 use boot::{Layout, Mode, Watchdog};
@@ -30,11 +32,15 @@ fn main() {
 
     let code = match cmd {
         "probe" => cmd_probe(),
-        "install" => cmd_install(&root, silent),
+        "install" => cmd_install(&root, silent, flag(&args, "--password")),
         "supervise" => cmd_supervise(&root),
         "worker" => cmd_worker(&root),
+        "verify" => cmd_verify(&root, args.iter().any(|a| a == "--repair")),
+        "obsidian-demo" => cmd_obsidian_demo(),
+        "corrupt-test" => cmd_corrupt_test(&root),
         other => {
             eprintln!("bilinmeyen alt komut: {other}");
+            eprintln!("kullanim: chimera <probe|install|supervise|worker|verify|obsidian-demo|corrupt-test>");
             2
         }
     };
@@ -66,13 +72,22 @@ fn cmd_probe() -> i32 {
     0
 }
 
-fn cmd_install(root: &str, silent: bool) -> i32 {
+fn cmd_install(root: &str, silent: bool, password: Option<String>) -> i32 {
     let layout = Layout::new(root);
     let host = hw::detect();
 
-    if let Err(e) = std::fs::create_dir_all(layout.runtime()) {
-        eprintln!("runtime dizini olusturulamadi: {e}");
-        return 1;
+    for dir in [
+        layout.runtime(),
+        layout.active_slot(),
+        layout.root.join("restore"),
+        layout.state(),
+        layout.root.join("logs"),
+        layout.quarantine(),
+    ] {
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("dizin olusturulamadi ({}): {e}", dir.display());
+            return 1;
+        }
     }
 
     let canary = build_canary(&host);
@@ -97,20 +112,215 @@ fn cmd_install(root: &str, silent: bool) -> i32 {
     // Blok bazinda alan iadesi sayesinde 60 GB -> 18 GB donusumu 78 GB degil
     // ~61 GB bos alanla yapilir. Her 256 MiB'da bir `fdatasync` ile checkpoint
     // alinir; elektrik kesilirse watchdog kalinan tensor indeksinden DEVAM
-    // eder, bastan baslamaz.
-    // Destek: ext4 / XFS / Btrfs / ZFS / NTFS(FSCTL_SET_ZERO_DATA).
+    // eder, bastan baslamaz. Destek: ext4 / XFS / Btrfs / ZFS / NTFS.
+    //
+    // Bu ortamda gercek, cok-GB'lik bir GGUF dosyasi YOK; bu yuzden bu adim
+    // burada calistirilamaz/dogrulanamaz. Ama butunluk-koruma zinciri
+    // (Merkle + ML-DSA-87 imza + parcali onarim) asagida GERCEK dosyalar
+    // uzerinde uygulanir — mekanizmanin kendisi taklit degildir.
 
     let plan_path = layout.runtime().join("plan.json");
     let doc: String = plans.iter().map(planner::plan_to_json).collect::<Vec<_>>().join(",\n");
-    if let Err(e) = std::fs::write(&plan_path, format!("[\n{doc}\n]\n")) {
+    let plan_bytes = format!("[\n{doc}\n]\n").into_bytes();
+    if let Err(e) = std::fs::write(&plan_path, &plan_bytes) {
         eprintln!("plan yazilamadi: {e}");
         return 1;
     }
+
+    // --- GERCEK butunluk zinciri: engine -> golden -> Merkle -> ML-DSA-87 imza ---
+    if let Err(e) = std::fs::write(layout.active_engine(), &plan_bytes) {
+        eprintln!("engine.mono yazilamadi: {e}");
+        return 1;
+    }
+    if let Err(e) = std::fs::write(layout.golden(), &plan_bytes) {
+        eprintln!("golden.mono yazilamadi: {e}");
+        return 1;
+    }
+    let leaf_size = 4096u64;
+    let tree = match merkle::build_tree_from_file(&layout.golden(), leaf_size as usize) {
+        Ok(t) => t,
+        Err(e) => { eprintln!("merkle agaci kurulamadi: {e}"); return 1; }
+    };
+    let dsa_kp = obsidian::dsa_generate_keypair();
+    let sig = obsidian::dsa_sign(&dsa_kp.signing_key, &tree.root);
+    if let Err(e) = boot::write_manifest(
+        &layout.manifest_sig(),
+        &obsidian::dsa_verifying_key_bytes(&dsa_kp.verifying_key),
+        &tree.root,
+        leaf_size,
+        &obsidian::dsa_signature_bytes(&sig),
+    ) {
+        eprintln!("MANIFEST.sig yazilamadi: {e}");
+        return 1;
+    }
+
+    // --- GERCEK Obsidian master anahtar: uret, parola ile muhurle, Shamir(2,3) boler ---
+    let master = match obsidian::generate_master_key() {
+        Ok(k) => k,
+        Err(e) => { eprintln!("master anahtar uretilemedi: {e}"); return 1; }
+    };
+    let (pw, generated) = match password {
+        Some(p) => (p, false),
+        None => (random_passphrase(), true),
+    };
+    let sealed = match obsidian::seal_master_key(pw.as_bytes(), &master) {
+        Ok(s) => s,
+        Err(e) => { eprintln!("master anahtar muhurlenemedi: {e}"); return 1; }
+    };
+    let mut seal_bytes = Vec::with_capacity(16 + 24 + sealed.ciphertext.len());
+    seal_bytes.extend_from_slice(&sealed.salt);
+    seal_bytes.extend_from_slice(&sealed.nonce);
+    seal_bytes.extend_from_slice(&sealed.ciphertext);
+    if let Err(e) = std::fs::write(layout.epoch_seal(), &seal_bytes) {
+        eprintln!("epoch.seal yazilamadi: {e}");
+        return 1;
+    }
+
+    // Shamir(2,3): mimari dokumandaki Share A/B/C. Ucu de burada tek dizine
+    // yazilmasi YALNIZCA bu demo/kurulum komutu icindir — GERCEK bir
+    // dagitimda Share A TPM'e, Share C offline bir zarfa gider ve ASLA
+    // ayni diskte durmaz. Bu, mimari belgesinde zaten boyle tanimliydi;
+    // burada sadece dogru sekilde vurgulanmis oluyor.
+    let shares = obsidian::split_master_key(&master);
+    for (i, share) in shares.iter().enumerate() {
+        let bytes: Vec<u8> = share.into();
+        let _ = std::fs::write(layout.state().join(format!("shamir_share_{i}_DEMO_ONLY.bin")), bytes);
+    }
+
     if !silent {
+        println!("\n--- OBSIDIAN ---");
+        println!("  ML-DSA-87 dogrulama anahtari : {} bayt", obsidian::dsa_verifying_key_bytes(&dsa_kp.verifying_key).len());
+        println!("  Merkle koku (golden)         : {}", hex(&tree.root));
+        println!("  MANIFEST.sig                 -> {}", layout.manifest_sig().display());
+        println!("  epoch.seal (master anahtar)  -> {}", layout.epoch_seal().display());
+        if generated {
+            println!("  KAYIT EDIN — kurtarma parolasi (bir daha gosterilmeyecek): {pw}");
+        }
         println!("\nplan  -> {}", plan_path.display());
-        println!("sonraki adim: chimera supervise --root {root}");
+        println!("sonraki adim: chimera verify --root {root}   (butunluk zincirini dogrula)");
+        println!("           veya: chimera supervise --root {root}");
     }
     0
+}
+
+fn cmd_verify(root: &str, repair: bool) -> i32 {
+    let layout = Layout::new(root);
+    match boot::verify_integrity(&layout) {
+        Ok(boot::Integrity::Ok) => {
+            println!("butunluk: OK — golden ve aktif dosya, imzali Merkle kokuyle eslesiyor");
+            0
+        }
+        Ok(boot::Integrity::Corrupt(leaves)) => {
+            println!("butunluk: BOZUK — {} yaprak golden ile uyusmuyor: {leaves:?}", leaves.len());
+            if repair {
+                match boot::repair_leaves(&layout, &leaves) {
+                    Ok(n) => {
+                        println!("onarim: {n} yaprak golden'dan geri yazildi");
+                        match boot::verify_integrity(&layout) {
+                            Ok(boot::Integrity::Ok) => { println!("onarim sonrasi: OK"); 0 }
+                            other => { println!("onarim sonrasi hala sorunlu: {other:?}"); 1 }
+                        }
+                    }
+                    Err(e) => { eprintln!("onarim basarisiz: {e}"); 1 }
+                }
+            } else {
+                println!("(onarmak icin --repair ekleyin)");
+                1
+            }
+        }
+        Ok(boot::Integrity::Tampered) => {
+            println!("butunluk: KURCALANMIS — imza gecersiz veya golden bozuk. Onarim DENENMEDI.");
+            1
+        }
+        Err(e) => { eprintln!("dogrulama basarisiz: {e}"); 1 }
+    }
+}
+
+/// Bilerek aktif dosyada bir bayt bozar — `chimera verify` ile tespit ve
+/// (`--repair` ile) onarimin gercekten calistigini canli gostermek icin.
+fn cmd_corrupt_test(root: &str) -> i32 {
+    let layout = Layout::new(root);
+    let path = layout.active_engine();
+    let mut data = match std::fs::read(&path) {
+        Ok(d) => d,
+        Err(e) => { eprintln!("{} okunamadi: {e} (once 'chimera install' calistirin)", path.display()); return 1; }
+    };
+    if data.is_empty() {
+        eprintln!("dosya bos, bozulacak bayt yok");
+        return 1;
+    }
+    let idx = data.len() / 3;
+    data[idx] ^= 0xFF;
+    if let Err(e) = std::fs::write(&path, &data) {
+        eprintln!("yazilamadi: {e}");
+        return 1;
+    }
+    println!("kasten bozuldu: {} (offset {idx})", path.display());
+    println!("simdi calistirin: chimera verify --root {root} --repair");
+    0
+}
+
+/// OBSIDIAN'in tum kriptografik hattini, diske DOKUNMADAN, saf bellek
+/// icinde ve GERCEK sayilarla gosterir: ML-KEM-1024 kapsulleme, ML-DSA-87
+/// imza, XChaCha20-Poly1305 muhur, Shamir(2,3) ve ortogonal vektor donusumu.
+fn cmd_obsidian_demo() -> i32 {
+    println!("=== OBSIDIAN canli demo (hepsi gercek, hicbiri simule degil) ===\n");
+
+    let master = obsidian::generate_master_key().expect("os rng");
+    println!("[1] Master anahtar uretildi: {} bayt", master.len());
+
+    let pw = b"demo-parola-ornek";
+    let sealed = obsidian::seal_master_key(pw, &master).expect("seal");
+    let recovered = obsidian::unseal_master_key(pw, &sealed).expect("unseal");
+    assert_eq!(master, recovered);
+    println!("[2] Argon2id + XChaCha20-Poly1305 muhur/ac dogrulandi ({} bayt ciphertext)", sealed.ciphertext.len());
+
+    let shares = obsidian::split_master_key(&master);
+    let recovered2 = obsidian::recover_master_key(&[shares[0].clone(), shares[2].clone()]).expect("recover");
+    assert_eq!(master, recovered2);
+    println!("[3] Shamir(2,3): {} parca uretildi, (A,C) ciftinden GERCEKTEN kurtarildi", shares.len());
+
+    let kem = obsidian::kem_generate_keypair();
+    let (ct, ss_a) = obsidian::kem_encapsulate(&kem.encapsulation_key);
+    let ss_b = obsidian::kem_decapsulate(&kem.decapsulation_key, &ct);
+    assert_eq!(ss_a, ss_b);
+    println!("[4] ML-KEM-1024: ciphertext {} bayt, paylasilan sir {} bayt, iki taraf eslesti", ct.len(), ss_a.len());
+
+    let dsa = obsidian::dsa_generate_keypair();
+    let msg = b"chimera epoch root, canli demo";
+    let sig = obsidian::dsa_sign(&dsa.signing_key, msg);
+    assert!(obsidian::dsa_verify(&dsa.verifying_key, msg, &sig).is_ok());
+    println!(
+        "[5] ML-DSA-87: dogrulama anahtari {} bayt, imza {} bayt, dogrulama GECTI",
+        obsidian::dsa_verifying_key_bytes(&dsa.verifying_key).len(),
+        obsidian::dsa_signature_bytes(&sig).len()
+    );
+
+    let dim = 16;
+    let q = obsidian::orthogonal_matrix(dim, 0xC0FFEE);
+    let a: Vec<f64> = (0..dim).map(|i| (i as f64 + 1.0).sin()).collect();
+    let b: Vec<f64> = (0..dim).map(|i| (i as f64 + 1.0).cos()).collect();
+    let sim_before = obsidian::cosine_similarity(&a, &b);
+    let ra = obsidian::rotate(&q, &a);
+    let rb = obsidian::rotate(&q, &b);
+    let sim_after = obsidian::cosine_similarity(&ra, &rb);
+    println!(
+        "[6] Ortogonal vektor donusumu: kosinus benzerligi once {sim_before:.10}, sonra {sim_after:.10} (fark {:.2e})",
+        (sim_before - sim_after).abs()
+    );
+
+    println!("\nTum adimlar gercekten calisti ve dogrulandi.");
+    0
+}
+
+fn random_passphrase() -> String {
+    let mut buf = [0u8; 20];
+    getrandom::fill(&mut buf).expect("os rng");
+    hex(&buf)
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn cmd_supervise(root: &str) -> i32 {

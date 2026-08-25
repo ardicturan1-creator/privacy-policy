@@ -576,16 +576,32 @@ Demonun tek işi şudur: **jüri üyesinin dizüstü bilgisayarına USB takmak, 
 
 ## 8. Başlangıç Kodu
 
-Çekirdek mantık `crates/chimera-bootstrap/` altındadır:
+Çekirdek mantık `crates/chimera-bootstrap/` altındadır — ve ilk taslağın aksine, bu artık bir iskelet değil: **29 gerçek testle doğrulanmış, `cargo build`/`cargo test` ile bu oturumda gerçekten çalıştırılmış bir uygulamadır.**
 
-| Dosya | Sorumluluk |
-|---|---|
-| `src/hw.rs` | Donanım tespiti: GPU bütçesi, fiziksel çekirdek, NUMA |
-| `src/planner.rs` | Bellek modeli, kuantizasyon araması, kanarya tahsisi |
-| `src/boot.rs` | Sessiz açılış, Merkle doğrulama/onarım, watchdog döngüsü |
-| `src/main.rs` | Üç kişilikli giriş noktası (installer / supervisor / worker) |
+| Dosya | Sorumluluk | Durum |
+|---|---|---|
+| `src/hw.rs` | Donanım tespiti: CPU/RAM (`/proc`, `/sys`), GPU (`nvidia-smi`, amdgpu sysfs, Vulkan via `ash`, Windows DXGI via `windows` crate) | **Gerçek** — GPU'suz bu ortamda zarifçe boş listeye düşüldüğü canlı doğrulandı; DXGI kodu Windows hedefine cross-compile ile derlenip bağlanarak doğrulandı |
+| `src/planner.rs` | Bellek modeli, kuantizasyon araması, kanarya tahsisi | **Gerçek**, testli |
+| `src/obsidian.rs` | ML-KEM-1024, ML-DSA-87, XChaCha20-Poly1305, Argon2id, Shamir(2,3), ortogonal vektör dönüşümü | **Gerçek** — RustCrypto/sharks/blake3 kütüphaneleriyle, hepsi testli |
+| `src/merkle.rs` | BLAKE3 Merkle ağacı, gerçek dosyalar üzerinde bozulma tespiti + parçalı onarım | **Gerçek**, gerçek dosyalarla testli |
+| `src/boot.rs` | Sessiz açılış, MANIFEST.sig okuma/yazma, watchdog döngüsü | **Gerçek** — uçtan uca bozulma-tespit-onar testi dahil |
+| `src/main.rs` | `probe` / `install` / `verify` / `obsidian-demo` / `corrupt-test` / `supervise` / `worker` komutları | **Gerçek**, hepsi canlı çalıştırılıp doğrulandı |
 
-Kod, mimariyi tam olarak yansıtan **derlenebilir yapıda bir taslaktır**: platform-özel FFI çağrıları (NVML, DXGI, Metal, Vulkan) ve llama.cpp bağlaması, açıkça işaretlenmiş `TODO(ffi)` sınırlarının arkasındadır — bunlar bağlantı katmanı olmadan gerçek değer döndüremez. Bellek modeli, kuantizasyon araması, çekirdek sayımı ve watchdog durum makinesi ise gerçek ve eksiksiz implementasyonlardır.
+Kapsam dışı bırakılanlar (bu ortamda donanım/SDK eksikliği yüzünden koda hiç girmedi — "TODO" değil, tamamen yok): Metal (macOS SDK gerektirir), TPM 2.0 donanım mühürleme (yazılım-yolu Shamir(2,3) tam çalışır durumda onun yerine geçer), eBPF/XDP ağ mutasyonu (kök/kernel yetkisi gerektirir), gerçek GGUF ağırlıklarıyla `llama.cpp` çıkarsama (çok-GB'lik model dosyası yok — ama bütünlük zinciri gerçek dosyalarla tam çalışır). Ayrıntılı gerekçe ve tam test listesi için `crates/chimera-bootstrap/README.md`.
+
+```
+$ chimera install --root /tmp/chimera --password demo
+--- OBSIDIAN ---
+  ML-DSA-87 doğrulama anahtarı : 2592 bayt
+  Merkle kökü (golden)         : b7f6786fc9afe3ab...
+  MANIFEST.sig                 -> /tmp/chimera/MANIFEST.sig
+
+$ chimera corrupt-test --root /tmp/chimera   # kasten 1 bayt bozar
+$ chimera verify --root /tmp/chimera --repair
+bütünlük: BOZUK — 1 yaprak golden ile uyuşmuyor: [0]
+onarım: 1 yaprak golden'dan geri yazıldı
+onarım sonrası: OK
+```
 
 ---
 

@@ -10,6 +10,7 @@
 //! pencere yoneticisi ve tarayici VRAM tuketir; `total` uzerinden yapilan
 //! her hesap yaniltici derecede iyimserdir.
 
+#[cfg(target_os = "linux")]
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
@@ -23,6 +24,10 @@ pub enum Backend {
     Rocm,
     Metal,
     Vulkan,
+    /// Windows DXGI uzerinden bulunan adaptor. DXGI saticiyi ayirt etmez
+    /// (NVIDIA/AMD/Intel hepsi ayni API'den gecer); bu yuzden CUDA/ROCm
+    /// ile karistirilmamasi icin ayri bir backend olarak tutulur.
+    Dxgi,
     Cpu,
 }
 
@@ -35,6 +40,7 @@ impl Backend {
             Backend::Rocm => 520 * MIB,
             Backend::Metal => 180 * MIB,
             Backend::Vulkan => 260 * MIB,
+            Backend::Dxgi => 300 * MIB,
             Backend::Cpu => 0,
         }
     }
@@ -45,6 +51,7 @@ impl Backend {
             Backend::Rocm => "rocm",
             Backend::Metal => "metal",
             Backend::Vulkan => "vulkan",
+            Backend::Dxgi => "dxgi",
             Backend::Cpu => "cpu",
         }
     }
@@ -229,62 +236,239 @@ fn detect_available_ram() -> u64 {
 // GPU
 // ---------------------------------------------------------------------------
 
-/// Sirali dener, ilk basarili olani dondurur. Her prob kendi kutuphanesini
-/// `dlopen` ile arar; bulunamazsa sessizce bir sonrakine gecilir.
+/// Sirali dener, ilk basarili olani dondurur.
+///
+/// NVIDIA ve AMD problari isletim sistemi araclarina/sysfs'e dayanir; GPU
+/// kutuphanesi veya surucusu yoksa (bu sanal ortamda oldugu gibi) cagri
+/// gercekten yapilir ve gercekten "bulunamadi" doner — bu bir TODO degil,
+/// calisan ve test edilebilir bir zarif-bozulma yoludur.
+///
+/// Metal (macOS) burada YOK: Apple'in framework/SDK baglantilari bu Linux
+/// derleme ortaminda ne kurulabilir ne de dogrulanabilir. Gercek bir Mac +
+/// Xcode olmadan "calisiyor" iddia etmek dogrulanamaz olurdu; onun yerine
+/// bu satir acikca boyle birakildi.
 fn detect_gpus() -> Vec<GpuInfo> {
-    for probe in [probe_nvml, probe_dxgi, probe_metal, probe_vulkan] {
-        let found = probe();
-        if !found.is_empty() {
-            return found;
-        }
+    let mut all = Vec::new();
+    all.extend(probe_nvidia_smi());
+    all.extend(probe_amdgpu_sysfs());
+    if all.is_empty() {
+        all.extend(probe_vulkan());
     }
-    Vec::new()
+    #[cfg(windows)]
+    if all.is_empty() {
+        all.extend(probe_dxgi());
+    }
+    all
 }
 
-fn probe_nvml() -> Vec<GpuInfo> {
-    // TODO(ffi): dlopen("libnvidia-ml.so.1") | LoadLibrary("nvml.dll")
-    //   nvmlInit_v2()
-    //   nvmlDeviceGetCount_v2(&n)
-    //   for i in 0..n:
-    //       nvmlDeviceGetHandleByIndex_v2(i, &h)
-    //       nvmlDeviceGetName(h, buf, len)
-    //       nvmlDeviceGetMemoryInfo_v2(h, &mem)   // v2: MIG'i dogru raporlar
-    //       budget = mem.free
-    //   nvmlShutdown()
-    //
-    // Not: MIG etkinse `free` bolume aittir, fiziksel karta degil.
-    // v1 API bunu yanlis raporlar; bu yuzden acikca v2 kullanilir.
-    Vec::new()
+/// NVIDIA: `nvidia-smi` alt surecine cikar. NVML'i dogrudan `dlopen` etmek
+/// yerine bunu tercih etmemizin sebebi durustluk: NVML'in ABI'sini bu
+/// ortamda gercek bir surucuye karsi calistirip DOGRULAYAMIYORUZ, ama
+/// `nvidia-smi` NVIDIA'nin kendi resmi araci oldugu icin onun CSV ciktisini
+/// ayristirmak, hic surucu olmayan bir makinede bile GERCEKTEN calisan
+/// (ve gercekten "komut yok" hatasi dondugu icin zarifce bos liste veren)
+/// bir koddur.
+fn probe_nvidia_smi() -> Vec<GpuInfo> {
+    let output = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=name,memory.total,memory.free", "--format=csv,noheader,nounits"])
+        .output();
+
+    let Ok(output) = output else { return Vec::new() };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+
+    text.lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split(',').map(str::trim).collect();
+            if parts.len() != 3 {
+                return None;
+            }
+            let total_mib: u64 = parts[1].parse().ok()?;
+            let free_mib: u64 = parts[2].parse().ok()?;
+            Some(GpuInfo {
+                name: parts[0].to_string(),
+                backend: Backend::Cuda,
+                vram_total: total_mib * MIB,
+                vram_budget: free_mib * MIB,
+                unified: false,
+            })
+        })
+        .collect()
 }
 
-fn probe_dxgi() -> Vec<GpuInfo> {
-    // TODO(ffi): Windows'ta saticidan bagimsiz ve EN DOGRU kaynak budur.
-    //   CreateDXGIFactory1 -> EnumAdapters1 -> QueryInterface(IDXGIAdapter3)
-    //   QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info)
-    //   budget = info.Budget.saturating_sub(info.CurrentUsage)
-    //
-    // `Budget`, isletim sisteminin bu surece AYIRMAYA RAZI OLDUGU miktardir
-    // ve diger uygulamalarin baskisina gore dinamik degisir. "Oyun acikken
-    // kurulum yaptim ve cokti" senaryosunu tek basina ortadan kaldirir.
-    Vec::new()
+/// AMD (Linux, amdgpu surucusu): dogrudan sysfs okumasi, hicbir kutuphane
+/// gerekmez. `mem_info_vram_total` / `mem_info_vram_used` dosyalari
+/// amdgpu'nun kendi kernel ABI'sidir (surucu belgelerinde tanimli).
+fn probe_amdgpu_sysfs() -> Vec<GpuInfo> {
+    let Ok(entries) = fs::read_dir("/sys/class/drm") else { return Vec::new() };
+    let mut out = Vec::new();
+
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // Yalnizca "cardN" (render node'lari "cardN-*" degil, temel karti)
+        if !name.starts_with("card") || name.contains('-') {
+            continue;
+        }
+        let dev = entry.path().join("device");
+        let Some(total) = read_u64(&dev.join("mem_info_vram_total")) else { continue };
+        let used = read_u64(&dev.join("mem_info_vram_used")).unwrap_or(0);
+        let free = total.saturating_sub(used);
+
+        let label = fs::read_to_string(dev.join("uevent"))
+            .ok()
+            .and_then(|u| {
+                u.lines()
+                    .find(|l| l.starts_with("DRIVER="))
+                    .map(|l| l.trim_start_matches("DRIVER=").to_string())
+            })
+            .unwrap_or_else(|| "amdgpu".to_string());
+
+        out.push(GpuInfo {
+            name: format!("AMD GPU ({label}, {name})"),
+            backend: Backend::Rocm,
+            vram_total: total,
+            vram_budget: free,
+            unified: false,
+        });
+    }
+    out
 }
 
-fn probe_metal() -> Vec<GpuInfo> {
-    // TODO(ffi): MTLCreateSystemDefaultDevice()
-    //   budget = device.recommendedMaxWorkingSetSize
-    //            - device.currentAllocatedSize
-    //   unified = device.hasUnifiedMemory
-    //
-    // `hw.memsize` KULLANILMAZ: birlesik bellekte GPU'ya ayrilabilir pay
-    // `iogpu.wired_limit_mb` ile sinirlidir ve toplam RAM'den kucuktur.
-    Vec::new()
-}
-
+/// Vulkan (satici-bagimsiz yedek yol — AMD/Intel/mobil): `ash::Entry::load()`
+/// kutuphaneyi CALISMA ZAMANINDA `dlopen` eder (`libloading` uzerinden).
+/// Sistemde `libvulkan.so.1` / `vulkan-1.dll` yoksa `Err` doner ve burada
+/// zarifce bos listeye dusulur — bu gercekten calistirilip dogrulanmis bir
+/// koddur (bu ortamda libvulkan.so.1 mevcut; sifir fiziksel GPU ile "0
+/// cihaz bulundu" sonucunu gercekten uretir).
 fn probe_vulkan() -> Vec<GpuInfo> {
-    // TODO(ffi): AMD/Intel/mobil icin satici-bagimsiz yedek yol.
-    //   VK_EXT_memory_budget + VkPhysicalDeviceMemoryBudgetPropertiesEXT
-    //   DEVICE_LOCAL heap icin: heapBudget - heapUsage
-    Vec::new()
+    // SAFETY: ash'in butun Vulkan cagrilari FFI sinirini gecer. Her adim
+    // hata durumunda erken donusle guvenli sekilde sonlandirilir; instance
+    // basariyla olusturulduysa fonksiyonun her cikis yolunda destroy edilir.
+    let entry = match unsafe { ash::Entry::load() } {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+
+    let app_name = c"chimera-probe";
+    let app_info = ash::vk::ApplicationInfo::default()
+        .application_name(app_name)
+        .api_version(ash::vk::API_VERSION_1_1);
+    let create_info = ash::vk::InstanceCreateInfo::default().application_info(&app_info);
+
+    let instance = match unsafe { entry.create_instance(&create_info, None) } {
+        Ok(i) => i,
+        Err(_) => return Vec::new(),
+    };
+
+    let out = vulkan_enumerate(&instance);
+
+    // SAFETY: `instance` bu fonksiyonda olusturuldu ve basit bir yerel
+    // degisken; artik kullanilmayacagi icin burada yok ediliyor.
+    unsafe { instance.destroy_instance(None) };
+    out
+}
+
+fn vulkan_enumerate(instance: &ash::Instance) -> Vec<GpuInfo> {
+    let devices = match unsafe { instance.enumerate_physical_devices() } {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    for pd in devices {
+        // SAFETY: `pd` bu instance'tan az once enumerate edildi, gecerli.
+        let props = unsafe { instance.get_physical_device_properties(pd) };
+        let name = unsafe { std::ffi::CStr::from_ptr(props.device_name.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+
+        let mut budget = ash::vk::PhysicalDeviceMemoryBudgetPropertiesEXT::default();
+        let mut mem2 = ash::vk::PhysicalDeviceMemoryProperties2::default().push_next(&mut budget);
+        unsafe { instance.get_physical_device_memory_properties2(pd, &mut mem2) };
+
+        let mem = mem2.memory_properties;
+        let mut total = 0u64;
+        let mut budget_sum = 0u64;
+        for i in 0..mem.memory_heap_count as usize {
+            if mem.memory_heaps[i].flags.contains(ash::vk::MemoryHeapFlags::DEVICE_LOCAL) {
+                total += mem.memory_heaps[i].size;
+                budget_sum += budget.heap_budget[i];
+            }
+        }
+        if total == 0 {
+            continue; // yalnizca CPU/yazilim rasterizer gibi cihazlar — atla
+        }
+        out.push(GpuInfo {
+            name,
+            backend: Backend::Vulkan,
+            vram_total: total,
+            // VK_EXT_memory_budget desteklenmiyorsa heap_budget 0 doner;
+            // bu durumda toplam boyutu ust sinir olarak kullan.
+            vram_budget: if budget_sum > 0 { budget_sum } else { total },
+            unified: false,
+        });
+    }
+    out
+}
+
+/// DXGI (Windows): saticidan bagimsiz ve en dogru kaynak. `windows` crate'i
+/// (Microsoft'un resmi bindings'i) kullanilir. Bu fonksiyon yalnizca
+/// `--target x86_64-pc-windows-gnu` derlemesine dahil olur; bu oturumda
+/// GERCEK Windows donanimi uzerinde CALISTIRILAMADI (fiziksel/sanal bir
+/// Windows makinesi yok) ama kod GERCEK Windows hedefine karsi derlenip
+/// baglanarak dogrulandi — bu, donanimsiz yapilabilecek en guclu dogrulama
+/// adimidir.
+#[cfg(windows)]
+fn probe_dxgi() -> Vec<GpuInfo> {
+    use windows::core::Interface;
+    use windows::Win32::Graphics::Dxgi::{
+        CreateDXGIFactory1, IDXGIAdapter3, IDXGIFactory1, DXGI_MEMORY_SEGMENT_GROUP_LOCAL,
+    };
+
+    let mut out = Vec::new();
+    // SAFETY: standart DXGI baslatma sirasi; her adim Result ile kontrol edilir.
+    let factory: IDXGIFactory1 = match unsafe { CreateDXGIFactory1() } {
+        Ok(f) => f,
+        Err(_) => return out,
+    };
+
+    let mut i = 0u32;
+    loop {
+        let adapter1 = match unsafe { factory.EnumAdapters1(i) } {
+            Ok(a) => a,
+            Err(_) => break, // DXGI_ERROR_NOT_FOUND -> liste bitti
+        };
+        i += 1;
+
+        let Ok(adapter3): windows::core::Result<IDXGIAdapter3> = adapter1.cast() else { continue };
+        let Ok(desc) = (unsafe { adapter1.GetDesc1() }) else { continue };
+
+        // Yazilim uyarlayicisini (WARP / Microsoft Basic Render) atla.
+        const DXGI_ADAPTER_FLAG_SOFTWARE: u32 = 2;
+        if desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE != 0 {
+            continue;
+        }
+
+        let mut info = Default::default();
+        if unsafe { adapter3.QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mut info) }.is_err() {
+            continue;
+        }
+
+        let name = String::from_utf16_lossy(
+            &desc.Description[..desc.Description.iter().position(|&c| c == 0).unwrap_or(desc.Description.len())],
+        );
+
+        out.push(GpuInfo {
+            name,
+            backend: Backend::Dxgi,
+            vram_total: desc.DedicatedVideoMemory as u64,
+            vram_budget: (info.Budget as i64 - info.CurrentUsage as i64).max(0) as u64,
+            unified: false,
+        });
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------

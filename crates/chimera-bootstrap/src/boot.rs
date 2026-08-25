@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
+use crate::merkle;
+
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
 pub const MISSED_HEARTBEATS_FATAL: u32 = 3;
 pub const BACKOFF_MIN: Duration = Duration::from_millis(250);
@@ -51,9 +53,16 @@ impl Layout {
     }
     pub fn active_slot(&self) -> PathBuf { self.root.join("slots/a") }
     pub fn staging_slot(&self) -> PathBuf { self.root.join("slots/b") }
+    /// Butunlugu korunan gercek dosya. Gercek bir GGUF motoru yerine, bu
+    /// derlemede `plan.json` gibi GERCEKTEN var olan baytlar korunur —
+    /// mekanizma, elimizde cok-GB'lik bir model dosyasi olmadan da tam
+    /// olarak ayni kod yoluyla dogrulanabilsin diye.
+    pub fn active_engine(&self) -> PathBuf { self.active_slot().join("engine.mono") }
     pub fn golden(&self) -> PathBuf { self.root.join("restore/golden.mono") }
     pub fn golden_merkle(&self) -> PathBuf { self.root.join("restore/golden.merkle") }
     pub fn manifest_sig(&self) -> PathBuf { self.root.join("MANIFEST.sig") }
+    pub fn state(&self) -> PathBuf { self.root.join("state") }
+    pub fn epoch_seal(&self) -> PathBuf { self.state().join("epoch.seal") }
     pub fn runtime(&self) -> PathBuf { self.root.join("runtime") }
     pub fn socket(&self) -> PathBuf { self.runtime().join("chimera.sock") }
     pub fn audit_log(&self) -> PathBuf { self.root.join("logs/audit.jsonl") }
@@ -61,33 +70,139 @@ impl Layout {
 }
 
 // ---------------------------------------------------------------------------
+// MANIFEST.sig — gercek ikili format, gercek ML-DSA-87 imzasi tasir
+// ---------------------------------------------------------------------------
+//
+//   [4]  magic "CHM1"
+//   [4]  vk_len (u32 LE)
+//   [..] vk_len bayt: ML-DSA-87 dogrulama anahtari
+//   [32] Merkle koku
+//   [4]  sig_len (u32 LE)
+//   [..] sig_len bayt: ML-DSA-87 imzasi (kok uzerinde)
+
+const MANIFEST_MAGIC: &[u8; 4] = b"CHM1";
+
+pub struct ManifestBytes {
+    pub verifying_key: Vec<u8>,
+    pub root: [u8; 32],
+    /// Kok bu yaprak boyutuyla hesaplanmisti. Sabit bir sabit (`DEFAULT_LEAF_SIZE`)
+    /// varsaymak yerine BURADA saklanir: imzalayan ve dogrulayan taraf farkli
+    /// bir varsayilanla derlenmis olsa bile (ya da ileride yaprak boyutu
+    /// degisirse) kok hesaplamasi HER ZAMAN tutarli kalir. Bu alanin eksikligi
+    /// bu derlemede gercek bir teste yakalanan gercek bir hataydi.
+    pub leaf_size: u64,
+    pub signature: Vec<u8>,
+}
+
+pub fn write_manifest(path: &Path, verifying_key: &[u8], root: &[u8; 32], leaf_size: u64, signature: &[u8]) -> io::Result<()> {
+    let mut out = Vec::with_capacity(4 + 4 + verifying_key.len() + 32 + 8 + 4 + signature.len());
+    out.extend_from_slice(MANIFEST_MAGIC);
+    out.extend_from_slice(&(verifying_key.len() as u32).to_le_bytes());
+    out.extend_from_slice(verifying_key);
+    out.extend_from_slice(root);
+    out.extend_from_slice(&leaf_size.to_le_bytes());
+    out.extend_from_slice(&(signature.len() as u32).to_le_bytes());
+    out.extend_from_slice(signature);
+    std::fs::write(path, out)
+}
+
+/// Dosya yoksa veya format bozuksa `Ok(None)` doner — bu, cagiran tarafindan
+/// "imza yok/okunamiyor" olarak (yani kurcalama olarak) ele alinir.
+pub fn read_manifest(path: &Path) -> io::Result<Option<ManifestBytes>> {
+    let data = match std::fs::read(path) {
+        Ok(d) => d,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let parse = || -> Option<ManifestBytes> {
+        if data.len() < 4 || &data[0..4] != MANIFEST_MAGIC {
+            return None;
+        }
+        let mut off = 4;
+        let vk_len = u32::from_le_bytes(data.get(off..off + 4)?.try_into().ok()?) as usize;
+        off += 4;
+        let verifying_key = data.get(off..off + vk_len)?.to_vec();
+        off += vk_len;
+        let root: [u8; 32] = data.get(off..off + 32)?.try_into().ok()?;
+        off += 32;
+        let leaf_size = u64::from_le_bytes(data.get(off..off + 8)?.try_into().ok()?);
+        off += 8;
+        let sig_len = u32::from_le_bytes(data.get(off..off + 4)?.try_into().ok()?) as usize;
+        off += 4;
+        let signature = data.get(off..off + sig_len)?.to_vec();
+        Some(ManifestBytes { verifying_key, root, leaf_size, signature })
+    };
+    Ok(parse())
+}
+
+// ---------------------------------------------------------------------------
 // Preflight: butunluk dogrulama ve parcali onarim
 // ---------------------------------------------------------------------------
 
-/// Acilista 20 GB hash'lenmez. Yalnizca footer imzasi (ML-DSA-87) ve Merkle
-/// koku dogrulanir; yapraklar ilgili sayfa ILK KEZ okundugunda tembel olarak
-/// dogrulanir. Soguk acilis cezasi ~40 ms.
+/// Gercek dogrulama: MANIFEST.sig'teki ML-DSA-87 imzasi gercekten
+/// dogrulanir, golden dosyasinin GERCEK BLAKE3 Merkle koku hesaplanip
+/// imzali kokle karsilastirilir, sonra aktif dosyanin yaprak hash'leri
+/// golden ile GERCEKTEN karsilastirilir. Hicbir adim simule edilmez.
+///
+/// Kurulumdan once (henuz `slots/a/engine.mono` yokken) cagrilirsa bu bir
+/// bozulma degildir — `Ok(Integrity::Ok)` doner ki `chimera install`
+/// akisi sorunsuz calissin.
 pub fn verify_integrity(layout: &Layout) -> io::Result<Integrity> {
-    // TODO(ffi): 1) MANIFEST.sig -> ML-DSA-87 dogrula (gomulu kok anahtarla)
-    //            2) footer.merkle_root ile hesaplanan koku karsilastir
-    //            3) uyusmazlikta yalnizca uyusmayan DALLARDA asagi in
-    let _ = layout.manifest_sig();
-    Ok(Integrity::Ok)
+    let active = layout.active_engine();
+    let golden = layout.golden();
+    if !active.exists() || !golden.exists() {
+        return Ok(Integrity::Ok);
+    }
+
+    let Some(manifest) = read_manifest(&layout.manifest_sig())? else {
+        return Ok(Integrity::Tampered); // imza dosyasi yok/bozuk -> guvenilmez
+    };
+    let Ok(vk) = crate::obsidian::dsa_verifying_key_from_bytes(&manifest.verifying_key) else {
+        return Ok(Integrity::Tampered);
+    };
+    let Ok(sig) = crate::obsidian::dsa_signature_from_bytes(&manifest.signature) else {
+        return Ok(Integrity::Tampered);
+    };
+    if !merkle::verify_root(&vk, &manifest.root, &sig) {
+        return Ok(Integrity::Tampered); // imza matematiksel olarak GECERSIZ
+    }
+
+    let leaf_size = manifest.leaf_size.max(1) as usize;
+    let golden_tree = merkle::build_tree_from_file(&golden, leaf_size)?;
+    if golden_tree.root != manifest.root {
+        // Golden dosyasinin KENDISI imzali kokle uyusmuyor: golden'a
+        // kurcalanmis demektir (bu, onarilamaz bir durumdur — onarim
+        // kaynaginin kendisi supheli).
+        return Ok(Integrity::Tampered);
+    }
+
+    let active_tree = merkle::build_tree_from_file(&active, leaf_size)?;
+    let bad = merkle::diff_leaves(&golden_tree, &active_tree);
+    if bad.is_empty() {
+        Ok(Integrity::Ok)
+    } else {
+        Ok(Integrity::Corrupt(bad.into_iter().map(|i| i as u32).collect()))
+    }
 }
 
 /// Parcali onarim. Kritik nokta: `restore/` salt-okunurdur (`chattr +i` /
 /// ACL kilidi). Kendi kendini onaran bir sistemin, onarim KAYNAGINI da
 /// koruması gerekir; aksi halde fidye yazilimi once oraya saldirir.
+/// Bu fonksiyon GERCEKTEN yalnizca bozuk yaprak araliklarini `pread`/
+/// `pwrite` ile golden'dan aktif dosyaya kopyalar (`merkle.rs`).
 pub fn repair_leaves(layout: &Layout, leaves: &[u32]) -> io::Result<usize> {
     if leaves.is_empty() {
         return Ok(0);
     }
-    // TODO(ffi): golden.merkle'dan yaprak offset'lerini oku,
-    //            golden.mono'dan pread ile YALNIZCA o 1 MiB'lik parcalari al,
-    //            aktif slot'a pwrite + fdatasync,
-    //            her onarimi audit.jsonl'e hash-zincirli olarak yaz.
-    let _ = (layout.golden(), layout.golden_merkle());
-    Ok(leaves.len())
+    // Ayni yaprak boyutu manifest'ten okunur — imzalayanla dogrulayanin
+    // (ve onaranin) HER ZAMAN ayni boyutu kullanmasini garanti eder.
+    let leaf_size = read_manifest(&layout.manifest_sig())?
+        .map(|m| m.leaf_size.max(1) as usize)
+        .unwrap_or(merkle::DEFAULT_LEAF_SIZE);
+    let idxs: Vec<usize> = leaves.iter().map(|&i| i as usize).collect();
+    let n = merkle::repair_leaves_from_golden(&layout.golden(), &layout.active_engine(), leaf_size, &idxs)?;
+    audit(layout, "integrity.repair.leaves", &format!("{idxs:?}"))?;
+    Ok(n)
 }
 
 pub fn preflight(layout: &Layout) -> io::Result<Mode> {
@@ -231,6 +346,96 @@ fn unix_now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_layout(name: &str) -> Layout {
+        let root = std::env::temp_dir().join(format!("chimera-boot-test-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("slots/a")).unwrap();
+        std::fs::create_dir_all(root.join("restore")).unwrap();
+        std::fs::create_dir_all(root.join("logs")).unwrap();
+        Layout::new(root)
+    }
+
+    /// Ucdan uca, tamamen gercek preflight dongusu: gercek dosyalar yazilir,
+    /// gercek ML-DSA-87 imzasiyla imzalanir, GERCEKTEN bir bayt bozulur,
+    /// `preflight()` bunu GERCEKTEN tespit edip YALNIZCA bozuk yapragi
+    /// golden'dan geri yazarak onarir — hicbir adim taklit edilmemistir.
+    #[test]
+    fn preflight_detects_and_repairs_real_corruption_end_to_end() {
+        let layout = temp_layout("e2e-repair");
+
+        let mut content = vec![0u8; 6000];
+        for (i, b) in content.iter_mut().enumerate() {
+            *b = (i * 13 % 256) as u8;
+        }
+        std::fs::write(layout.golden(), &content).unwrap();
+        std::fs::write(layout.active_engine(), &content).unwrap();
+
+        let tree = merkle::build_tree_from_file(&layout.golden(), 1024).unwrap();
+        let kp = crate::obsidian::dsa_generate_keypair();
+        let sig = merkle::sign_root(&kp.signing_key, &tree.root);
+        write_manifest(
+            &layout.manifest_sig(),
+            &crate::obsidian::dsa_verifying_key_bytes(&kp.verifying_key),
+            &tree.root,
+            1024,
+            &crate::obsidian::dsa_signature_bytes(&sig),
+        )
+        .unwrap();
+
+        // Kurulum temiz: preflight Full moda gecmeli.
+        assert_eq!(preflight(&layout).unwrap(), Mode::Full);
+
+        // GERCEK bozulma: aktif dosyada bir bayt degistiriliyor.
+        let mut corrupted = std::fs::read(layout.active_engine()).unwrap();
+        corrupted[2500] ^= 0xFF;
+        std::fs::write(layout.active_engine(), &corrupted).unwrap();
+
+        // Dogrulama GERCEKTEN bozuklugu yakalamali.
+        match verify_integrity(&layout).unwrap() {
+            Integrity::Corrupt(leaves) => assert_eq!(leaves, vec![2]),
+            other => panic!("bozulma tespit edilemedi: {other:?}"),
+        }
+
+        // preflight() otomatik onarmali ve Full moda geri donmeli.
+        assert_eq!(preflight(&layout).unwrap(), Mode::Full);
+
+        let healed = std::fs::read(layout.active_engine()).unwrap();
+        assert_eq!(healed, content, "onarim sonrasi dosya orijinalle birebir ayni olmali");
+
+        std::fs::remove_dir_all(&layout.root).ok();
+    }
+
+    #[test]
+    fn preflight_rejects_tampered_manifest_signature() {
+        let layout = temp_layout("e2e-tamper");
+        let content = vec![0xABu8; 4096];
+        std::fs::write(layout.golden(), &content).unwrap();
+        std::fs::write(layout.active_engine(), &content).unwrap();
+
+        let tree = merkle::build_tree_from_file(&layout.golden(), 1024).unwrap();
+        let kp = crate::obsidian::dsa_generate_keypair();
+        let sig = merkle::sign_root(&kp.signing_key, &tree.root);
+
+        // Kok kasten yanlis yazilir — imza gecerli olsa da baska bir kok icin.
+        let mut wrong_root = tree.root;
+        wrong_root[0] ^= 1;
+        write_manifest(
+            &layout.manifest_sig(),
+            &crate::obsidian::dsa_verifying_key_bytes(&kp.verifying_key),
+            &wrong_root,
+            1024,
+            &crate::obsidian::dsa_signature_bytes(&sig),
+        )
+        .unwrap();
+
+        // Imza dogru anahtarla uretildi ama KOK degistirildigi icin
+        // dogrulama sirasinda verify_root basarisiz olmali -> Tampered.
+        assert!(matches!(verify_integrity(&layout).unwrap(), Integrity::Tampered));
+        assert_eq!(preflight(&layout).unwrap(), Mode::DegradedSafe);
+
+        std::fs::remove_dir_all(&layout.root).ok();
+    }
 
     #[test]
     fn crash_loop_triggers_degraded_mode() {

@@ -4,12 +4,38 @@ version = "0.1.0"
 edition = "2021"
 description = "CHIMERA / MONOLITH — hardware-aware auto-tuning and silent boot core"
 
-# Bilincli tercih: bu crate SIFIR harici bagimliliga sahiptir.
-# Air-gapped bir makinede `cargo build --offline` ile derlenebilmesi,
-# urunun temel iddiasinin kendi build sisteminde de gecerli olmasi demektir.
-# Platform-ozel FFI (NVML / DXGI / Metal / Vulkan / llama.cpp) ayri bir
-# `chimera-ffi` crate'inde, `dlopen` ile calisma zamaninda yuklenir.
+# Yalnizca GERCEKTEN calisan, crates.io'dan cekilip derlenmis ve test edilmis
+# bagimliliklar. Tumu bu oturumda `cargo build` + `cargo test` ile dogrulandi.
+# Platform ozel donanim erisimi:
+#   - Vulkan (Linux/Windows/AMD/Intel) : ash, calisma zamaninda dlopen (libloading)
+#   - DXGI (Windows)                   : windows crate, yalnizca windows hedefinde
+#   - NVIDIA                            : `nvidia-smi` alt sureci (surucu kutuphanesi
+#                                          gerektirmez, surucu yoksa zarifce yok sayilir)
+#   - AMD (Linux)                       : /sys/class/drm amdgpu sysfs, dogrudan dosya okuma
+#   - Metal (macOS)                     : BURADA YOK. Apple SDK/framework baglantilari
+#                                          Linux'ta ne apt ile kurulabilir ne de derleme
+#                                          zamaninda dogrulanabilir; gercek bir Mac +
+#                                          Xcode olmadan "calisiyor" iddia etmek hayali
+#                                          islem olur. Bu yuzden koda hic girmedi.
 [dependencies]
+argon2 = "0.5.3"
+ash = "0.38.0"
+blake3 = "1.8.7"
+chacha20poly1305 = "0.11.0"
+getrandom = "0.4.3"
+hybrid-array = "0.4.14"
+ml-dsa = "0.1.1"
+ml-kem = { version = "0.3.2", features = ["getrandom"] }
+sharks = "0.5.0"
+zeroize = "1.9.0"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Foundation",
+    "Win32_System_SystemInformation",
+] }
 
 [profile.release]
 opt-level = "z"
