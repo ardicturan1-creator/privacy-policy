@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/chimera-crypto",
+    "crates/chimera-bootstrap",
+    "crates/chimera-ipc",
+    "crates/chimera-core",
+    "crates/chimera-sentinel",
+    "crates/chimera-admin",
+]
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

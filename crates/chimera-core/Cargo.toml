@@ -1,0 +1,12 @@
+[package]
+name = "chimera-core"
+version = "0.1.0"
+edition = "2021"
+description = "CHIMERA Core Daemon — kimlik dogrulamali IPC sunucusu, karsilikli watchdog, siber yanıltma (decoy+tarpit)"
+
+[dependencies]
+chimera-crypto = { path = "../chimera-crypto" }
+chimera-ipc = { path = "../chimera-ipc" }
+interprocess = "2.4.3"
+notify = "8.2.0"
+getrandom = "0.4.3"

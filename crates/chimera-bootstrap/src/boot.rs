@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
-use crate::merkle;
+use chimera_crypto::merkle;
 
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
 pub const MISSED_HEARTBEATS_FATAL: u32 = 3;
@@ -157,10 +157,10 @@ pub fn verify_integrity(layout: &Layout) -> io::Result<Integrity> {
     let Some(manifest) = read_manifest(&layout.manifest_sig())? else {
         return Ok(Integrity::Tampered); // imza dosyasi yok/bozuk -> guvenilmez
     };
-    let Ok(vk) = crate::obsidian::dsa_verifying_key_from_bytes(&manifest.verifying_key) else {
+    let Ok(vk) = chimera_crypto::obsidian::dsa_verifying_key_from_bytes(&manifest.verifying_key) else {
         return Ok(Integrity::Tampered);
     };
-    let Ok(sig) = crate::obsidian::dsa_signature_from_bytes(&manifest.signature) else {
+    let Ok(sig) = chimera_crypto::obsidian::dsa_signature_from_bytes(&manifest.signature) else {
         return Ok(Integrity::Tampered);
     };
     if !merkle::verify_root(&vk, &manifest.root, &sig) {
@@ -372,14 +372,14 @@ mod tests {
         std::fs::write(layout.active_engine(), &content).unwrap();
 
         let tree = merkle::build_tree_from_file(&layout.golden(), 1024).unwrap();
-        let kp = crate::obsidian::dsa_generate_keypair();
+        let kp = chimera_crypto::obsidian::dsa_generate_keypair();
         let sig = merkle::sign_root(&kp.signing_key, &tree.root);
         write_manifest(
             &layout.manifest_sig(),
-            &crate::obsidian::dsa_verifying_key_bytes(&kp.verifying_key),
+            &chimera_crypto::obsidian::dsa_verifying_key_bytes(&kp.verifying_key),
             &tree.root,
             1024,
-            &crate::obsidian::dsa_signature_bytes(&sig),
+            &chimera_crypto::obsidian::dsa_signature_bytes(&sig),
         )
         .unwrap();
 
@@ -414,7 +414,7 @@ mod tests {
         std::fs::write(layout.active_engine(), &content).unwrap();
 
         let tree = merkle::build_tree_from_file(&layout.golden(), 1024).unwrap();
-        let kp = crate::obsidian::dsa_generate_keypair();
+        let kp = chimera_crypto::obsidian::dsa_generate_keypair();
         let sig = merkle::sign_root(&kp.signing_key, &tree.root);
 
         // Kok kasten yanlis yazilir — imza gecerli olsa da baska bir kok icin.
@@ -422,10 +422,10 @@ mod tests {
         wrong_root[0] ^= 1;
         write_manifest(
             &layout.manifest_sig(),
-            &crate::obsidian::dsa_verifying_key_bytes(&kp.verifying_key),
+            &chimera_crypto::obsidian::dsa_verifying_key_bytes(&kp.verifying_key),
             &wrong_root,
             1024,
-            &crate::obsidian::dsa_signature_bytes(&sig),
+            &chimera_crypto::obsidian::dsa_signature_bytes(&sig),
         )
         .unwrap();
 

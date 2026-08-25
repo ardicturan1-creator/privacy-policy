@@ -13,10 +13,9 @@
 // tamamini gormek, yarim gostermekten daha faydali oldugu icin bilincli tercih.
 #![allow(dead_code)]
 
+use chimera_crypto::{merkle, obsidian};
 mod boot;
 mod hw;
-mod merkle;
-mod obsidian;
 mod planner;
 
 use boot::{Layout, Mode, Watchdog};

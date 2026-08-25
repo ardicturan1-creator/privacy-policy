@@ -75,15 +75,22 @@ pub struct SealedKey {
     pub ciphertext: Vec<u8>,
 }
 
+/// Argon2id ile parola+tuz'dan 32 baytlik bir anahtar turetir. `seal_master_key`/
+/// `unseal_master_key`'in ic mantigi, ve kimlik dosyalarini yerel bir parolayla
+/// muhurlemek isteyen diger bilesenler (orn. `chimera-ipc`) icin ortak cekirdek.
+pub fn kdf_argon2id(password: &[u8], salt: &[u8; SALT_LEN]) -> Result<[u8; 32], ObsidianError> {
+    let mut derived = [0u8; 32];
+    Argon2::default()
+        .hash_password_into(password, salt, &mut derived)
+        .map_err(|_| ObsidianError::Kdf)?;
+    Ok(derived)
+}
+
 /// Master anahtari, parola-turetilmis (Argon2id) bir anahtarla XChaCha20-Poly1305
 /// kullanarak muhurler. Mimari dokumandaki "Share B" adimidir.
 pub fn seal_master_key(password: &[u8], master_key: &[u8; MASTER_KEY_LEN]) -> Result<SealedKey, ObsidianError> {
     let salt = random_bytes::<SALT_LEN>()?;
-
-    let mut derived = [0u8; 32];
-    Argon2::default()
-        .hash_password_into(password, &salt, &mut derived)
-        .map_err(|_| ObsidianError::Kdf)?;
+    let mut derived = kdf_argon2id(password, &salt)?;
 
     let cipher = XChaCha20Poly1305::new((&derived).into());
     let nonce = Nonce::<XChaCha20Poly1305>::generate();
@@ -104,10 +111,7 @@ pub fn seal_master_key(password: &[u8], master_key: &[u8; MASTER_KEY_LEN]) -> Re
 /// kurcalanmis ciphertext AEAD dogrulamasinda BASARISIZ olur (sessizce
 /// yanlis anahtar dondurmez).
 pub fn unseal_master_key(password: &[u8], sealed: &SealedKey) -> Result<[u8; MASTER_KEY_LEN], ObsidianError> {
-    let mut derived = [0u8; 32];
-    Argon2::default()
-        .hash_password_into(password, &sealed.salt, &mut derived)
-        .map_err(|_| ObsidianError::Kdf)?;
+    let mut derived = kdf_argon2id(password, &sealed.salt)?;
 
     let cipher = XChaCha20Poly1305::new((&derived).into());
     let nonce = Nonce::<XChaCha20Poly1305>::try_from(sealed.nonce.as_slice()).expect("24 bayt nonce");
@@ -168,6 +172,19 @@ pub fn kem_decapsulate(dk: &ml_kem::kem::DecapsulationKey<MlKem1024>, ciphertext
     dk.decapsulate(&ct).to_vec()
 }
 
+/// IPC el sikismasinda gecici (ephemeral) encapsulation anahtarini
+/// karsi tarafa gondermek icin bayt serilestirme.
+pub fn kem_encapsulation_key_bytes(ek: &ml_kem::kem::EncapsulationKey<MlKem1024>) -> Vec<u8> {
+    use ml_kem::kem::KeyExport;
+    ek.to_bytes().to_vec()
+}
+
+pub fn kem_encapsulation_key_from_bytes(bytes: &[u8]) -> Result<ml_kem::kem::EncapsulationKey<MlKem1024>, ObsidianError> {
+    use hybrid_array::Array;
+    let key = Array::try_from(bytes).map_err(|_| ObsidianError::SignatureInvalid)?;
+    ml_kem::kem::EncapsulationKey::<MlKem1024>::new(&key).map_err(|_| ObsidianError::SignatureInvalid)
+}
+
 // ---------------------------------------------------------------------------
 // ML-DSA-87 (FIPS 204) — imza
 // ---------------------------------------------------------------------------
@@ -217,6 +234,22 @@ pub fn dsa_signature_from_bytes(bytes: &[u8]) -> Result<ml_dsa::Signature<MlDsa8
     ml_dsa::Signature::<MlDsa87>::try_from(bytes).map_err(|_| ObsidianError::SignatureInvalid)
 }
 
+/// Imzalama (gizli) anahtarinin bayt hali — yalnizca KALICI KIMLIK
+/// depolamak icin (orn. `chimera-ipc` sabit sunucu/istemci kimligi).
+/// Bu baytlar sifrelenmeden diske DUSMEMELIDIR; cagiran taraf bunu
+/// `seal_data`/`open_data` ile sarmalamalidir.
+pub fn dsa_signing_key_bytes(sk: &ml_dsa::SigningKey<MlDsa87>) -> Vec<u8> {
+    use ml_dsa::KeyExport;
+    sk.to_bytes().to_vec()
+}
+
+pub fn dsa_signing_key_from_bytes(bytes: &[u8]) -> Result<ml_dsa::SigningKey<MlDsa87>, ObsidianError> {
+    use hybrid_array::Array;
+    use ml_dsa::KeyInit;
+    let key = Array::try_from(bytes).map_err(|_| ObsidianError::SignatureInvalid)?;
+    Ok(ml_dsa::SigningKey::<MlDsa87>::new(&key))
+}
+
 // ---------------------------------------------------------------------------
 // XChaCha20-Poly1305 — veri muhuru (Obsidian'in ana AEAD katmani)
 // ---------------------------------------------------------------------------
@@ -231,6 +264,37 @@ pub fn seal_data(key: &[u8; 32], plaintext: &[u8]) -> (Nonce<XChaCha20Poly1305>,
 pub fn open_data(key: &[u8; 32], nonce: &Nonce<XChaCha20Poly1305>, ciphertext: &[u8]) -> Result<Vec<u8>, ObsidianError> {
     let cipher = XChaCha20Poly1305::new(key.into());
     cipher.decrypt(nonce, ciphertext).map_err(|_| ObsidianError::Unseal)
+}
+
+/// `kdf_argon2id` + `seal_data`'nin bilesigi: KEYFISIZ boyuttaki herhangi bir
+/// bayt dizisini (orn. bir kimlik imzalama anahtarini) dogrudan bir parolayla
+/// muhurler. Cikti duzeni: `salt(16) || nonce(24) || ciphertext`.
+pub fn seal_with_password(password: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, ObsidianError> {
+    let salt = random_bytes::<SALT_LEN>()?;
+    let mut key = kdf_argon2id(password, &salt)?;
+    let (nonce, ct) = seal_data(&key, plaintext);
+    key.zeroize();
+
+    let mut out = Vec::with_capacity(SALT_LEN + 24 + ct.len());
+    out.extend_from_slice(&salt);
+    out.extend_from_slice(nonce.as_slice());
+    out.extend_from_slice(&ct);
+    Ok(out)
+}
+
+pub fn open_with_password(password: &[u8], sealed: &[u8]) -> Result<Vec<u8>, ObsidianError> {
+    if sealed.len() < SALT_LEN + 24 {
+        return Err(ObsidianError::Unseal);
+    }
+    let salt: [u8; SALT_LEN] = sealed[..SALT_LEN].try_into().map_err(|_| ObsidianError::Unseal)?;
+    let nonce_bytes = &sealed[SALT_LEN..SALT_LEN + 24];
+    let ct = &sealed[SALT_LEN + 24..];
+
+    let mut key = kdf_argon2id(password, &salt)?;
+    let nonce = Nonce::<XChaCha20Poly1305>::try_from(nonce_bytes).map_err(|_| ObsidianError::Unseal)?;
+    let result = open_data(&key, &nonce, ct);
+    key.zeroize();
+    result
 }
 
 // ---------------------------------------------------------------------------
