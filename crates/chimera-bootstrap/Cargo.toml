@@ -1,0 +1,19 @@
+[package]
+name = "chimera-bootstrap"
+version = "0.1.0"
+edition = "2021"
+description = "CHIMERA / MONOLITH — hardware-aware auto-tuning and silent boot core"
+
+# Bilincli tercih: bu crate SIFIR harici bagimliliga sahiptir.
+# Air-gapped bir makinede `cargo build --offline` ile derlenebilmesi,
+# urunun temel iddiasinin kendi build sisteminde de gecerli olmasi demektir.
+# Platform-ozel FFI (NVML / DXGI / Metal / Vulkan / llama.cpp) ayri bir
+# `chimera-ffi` crate'inde, `dlopen` ile calisma zamaninda yuklenir.
+[dependencies]
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
