@@ -5,6 +5,8 @@
 //!   chimera-core provision --root R           master anahtar uret, Shamir(2,3) paylarini YAZDIR
 //!   chimera-core serve     --root R           IPC sunucusu + watchdog + decoy + tarpit
 //!   chimera-core verify-audit --root R        hash-zincirli denetim kaydinin butunlugunu YEREL olarak dogrula
+//!   chimera-core install-service   --root R   Windows Servisi olarak kur (YONETICI gerekir)
+//!   chimera-core uninstall-service            Windows Servisi kaydini sil (YONETICI gerekir)
 //!
 //! Bu sürecin GUI ile HİÇBİR doğrudan bağı yoktur: GUI (chimera-admin)
 //! kapansa, çökse, hatta hiç açılmasa bile bu süreç bağımsız çalışmaya
@@ -28,11 +30,14 @@ mod bruteforce;
 mod circuit_breaker;
 mod cmdguard;
 mod decoy;
+mod etw;
 mod firewall;
 mod heuristic;
+mod mitigation;
 mod pipeline;
 mod remediate;
 mod scanner;
+mod service;
 mod tarpit;
 
 use chimera_crypto::obsidian;
@@ -72,11 +77,30 @@ fn main() {
         "trust" => cmd_trust(&root, flag(&args, "--pubkey")),
         "attest" => cmd_attest(&root, flag(&args, "--pubkey"), flag(&args, "--binary-hash")),
         "provision" => cmd_provision(&root, flag(&args, "--password")),
-        "serve" => cmd_serve(&root),
+        "serve" => {
+            // Faz 4: surec SCM tarafindan baslatildiysa servis olarak
+            // calis; degilse (normal konsol) her zamanki yola dus.
+            // `StartServiceCtrlDispatcherW` yalnizca GERCEK bir servis
+            // baslatmasinda basarili olur, bu yuzden bu kontrol guvenlidir
+            // ve iki mod arasinda bir tahmin yapmaya gerek kalmaz.
+            match service::run_as_service(cmd_serve) {
+                Ok(()) => 0,
+                Err(_) => cmd_serve(&root),
+            }
+        }
+        "install-service" => match service::install(&root) {
+            Ok(msg) => { println!("{msg}"); 0 }
+            Err(e) => { eprintln!("{e}"); 1 }
+        },
+        "uninstall-service" => match service::uninstall() {
+            Ok(msg) => { println!("{msg}"); 0 }
+            Err(e) => { eprintln!("{e}"); 1 }
+        },
         "verify-audit" => cmd_verify_audit(&root),
         other => {
             eprintln!("bilinmeyen alt komut: {other}");
-            eprintln!("kullanim: chimera-core <identity|trust|attest|provision|serve|verify-audit> --root DIR");
+                eprintln!("kullanim: chimera-core <identity|trust|attest|provision|serve|verify-audit|");
+            eprintln!("                        install-service|uninstall-service> --root DIR");
             2
         }
     };
@@ -238,6 +262,28 @@ fn cmd_serve(root: &Path) -> i32 {
     };
     audit(&l, "core.start", &format!("fingerprint={}", identity.fingerprint()));
     maybe_log_debugger_presence(&l);
+
+    // --- Faz 4: surecin KENDISINI sertlestirmesi ---
+    // Mumkun olan EN ERKEN noktada uygulanir: bu politikalar GERI
+    // ALINAMAZ ve ne kadar erken uygulanirsa, saldirganin adres alanina
+    // kod sokmak icin sahip oldugu pencere o kadar dar olur.
+    {
+        let results = mitigation::harden_self();
+        let summary = mitigation::summarize(&results);
+        audit(&l, "mitigation.applied", &summary.replace('\n', " | "));
+        print!("{summary}");
+    }
+
+    // --- Faz 4: ETW tuketicisi (Ring-3'te kernel-kaynakli telemetri) ---
+    let etw_rates = Arc::new(Mutex::new(etw::EventRates::new()));
+    {
+        let status = etw::spawn(Arc::clone(&etw_rates));
+        // Durum HER ZAMAN kaydedilir -- kurulamadiysa da. Sessiz bir
+        // basarisizlik, operatorun "gercek zamanli telemetrim var"
+        // sanmasina yol acardi.
+        audit(&l, "etw.status", &status.to_text());
+        println!("{}", status.to_text());
+    }
 
     // --- Kasayi bellekte ac (diskte hicbir zaman acik anahtar yok) ---
     let vault = std::fs::read(l.vault()).ok().and_then(|buf| {
@@ -428,6 +474,17 @@ fn cmd_serve(root: &Path) -> i32 {
     // biterken (temiz durdurma) false'a cekilir, boylece bu thread de
     // sonsuza kadar arka planda takili kalmaz.
     let pipeline_running = Arc::new(AtomicBool::new(true));
+    // ETW hiz gozlemcisi, boru hatti bayragiyla AYNI temiz-durdurma
+    // desenini paylasir -- temiz durdurmada asili kalmaz.
+    {
+        let audit_path = l.audit_log();
+        etw::spawn_rate_watcher(
+            Arc::clone(&etw_rates),
+            l.root.clone(),
+            Arc::clone(&pipeline_running),
+            move |e: &str, d: &str| { let _ = auditlog::append(&audit_path, e, d); },
+        );
+    }
     pipeline::spawn_background_loop(
         Arc::clone(&pipeline_running),
         l.root.clone(),

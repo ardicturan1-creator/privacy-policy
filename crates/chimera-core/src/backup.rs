@@ -410,7 +410,16 @@ pub fn prune(root: &Path, keep: usize, audit: &impl Fn(&str, &str)) -> usize {
     removed
 }
 
-fn clear_read_only_recursive(p: &Path) {
+/// Bir ağacın salt-okunur işaretlerini özyinelemeli olarak kaldırır.
+///
+/// `pub(crate)`'tir çünkü **testler de buna ihtiyaç duyar**: Windows'ta
+/// `remove_dir_all`, salt-okunur bir dosyada BAŞARISIZ olur (Linux'ta
+/// yazılabilir bir dizindeki salt-okunur dosya silinebilir). Bu fark,
+/// yedek dizinlerini temizleyen testlerin Linux'ta geçip Wine altında
+/// başarısız olmasına yol açtı — gerçek bir platform farkıdır ve
+/// testlerin bunu tek tek yeniden uygulaması yerine burada TEK bir
+/// doğru kaynaktan çözülür.
+pub(crate) fn clear_read_only_recursive(p: &Path) {
     if let Ok(md) = std::fs::metadata(p) {
         let mut perms = md.permissions();
         #[allow(clippy::permissions_set_readonly_false)]

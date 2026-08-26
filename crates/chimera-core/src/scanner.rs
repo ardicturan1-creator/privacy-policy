@@ -92,7 +92,37 @@ pub fn scan(root: &std::path::Path) -> Vec<Finding> {
     check_active_autoblocks(root, &mut out);
     check_backup_health(root, &mut out);
     check_cmdguard_availability(&mut out);
+    check_etw_high_write_rates(root, &mut out);
     out
+}
+
+/// ETW'nin bildirdigi olagandisi yuksek dosya-yazma hizlarini bulgu
+/// olarak sunar.
+///
+/// **Otomatik hicbir aksiyon TASIMAZ** (`remediation: None`) ve bu
+/// bilinclidir: yuksek yazma hizi fidye yazilimina OZGU degildir -- bir
+/// derleyici, veritabani veya video donusturucu de ayni hizi uretir.
+/// Otomatik askiya alma, `heuristic.rs`'in ENTROPI+hiz birlesimine veya
+/// tuzaga dokunmaya bagli kalir.
+fn check_etw_high_write_rates(root: &std::path::Path, out: &mut Vec<Finding>) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    // Gozlem, penceresinin iki kati kadar sure "guncel" sayilir.
+    let hits = crate::etw::recent_high_rates(root, now, crate::etw::RATE_WINDOW_SECS * 2);
+    if hits.is_empty() {
+        return;
+    }
+    let detail: Vec<String> = hits.iter().map(|h| h.as_detail()).collect();
+    out.push(Finding {
+        id: "etw.high_write_rate".into(),
+        severity: Severity::High,
+        title: format!("{} surec olagandisi yuksek dosya-yazma hizinda", hits.len()),
+        detail: format!(
+            "{}\nNOT: Yuksek yazma hizi TEK BASINA kotu niyet KANITI DEGILDIR (derleyici, veritabani, \
+             video donusturucu ayni hizi uretir). Bu yuzden otomatik aksiyon UYGULANMADI -- inceleyin.",
+            detail.join("\n")
+        ),
+        remediation: None,
+    });
 }
 
 /// Yedeklerin durumunu raporlar. "Yedegim var" sanip aslinda hic yedek
@@ -498,11 +528,42 @@ mod tests {
         assert!(out[0].remediation.is_none(), "okunamayan gunluk icin otomatik aksiyon ONERILMEMELI");
     }
 
+    /// ETW yuksek-hiz gozlemi bir bulgu uretmeli ama ASLA otomatik bir
+    /// aksiyon TASIMAMALI -- yanlis pozitif riski cok yuksek.
+    #[test]
+    fn etw_high_write_rates_are_reported_but_never_carry_an_automatic_action() {
+        let root = std::env::temp_dir().join(format!("chimera-scan-etw-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("state")).unwrap();
+
+        let mut out = Vec::new();
+        check_etw_high_write_rates(&root, &mut out);
+        assert!(out.is_empty(), "gozlem yokken bulgu uretilmemeli");
+
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        std::fs::write(
+            crate::etw::state_file(&root),
+            format!("{{\"ts\":{now},\"pid\":4242,\"events\":9000}}\n"),
+        )
+        .unwrap();
+
+        let mut out = Vec::new();
+        check_etw_high_write_rates(&root, &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].severity, Severity::High);
+        assert!(out[0].detail.contains("4242"));
+        assert!(out[0].detail.contains("KANITI DEGILDIR"), "yanlis pozitif uyarisi bulguda OLMALI");
+        assert!(out[0].remediation.is_none(), "bu bulgu OTOMATIK aksiyon TASIMAMALI");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// Hic yedek yoksa bu KRITIK bir bulgu olmali -- sessizce
     /// gecistirilirse operator kendini yedekli sanir.
     #[test]
     fn a_missing_backup_is_reported_as_critical() {
         let root = std::env::temp_dir().join(format!("chimera-scan-bk-{}", std::process::id()));
+        crate::backup::clear_read_only_recursive(&root);
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("state")).unwrap();
 
@@ -520,6 +581,7 @@ mod tests {
         check_backup_health(&root, &mut out);
         assert!(out.is_empty(), "taze yedek varken bulgu uretilmemeli: {out:?}");
 
+        crate::backup::clear_read_only_recursive(&root);
         let _ = std::fs::remove_dir_all(&root);
     }
 

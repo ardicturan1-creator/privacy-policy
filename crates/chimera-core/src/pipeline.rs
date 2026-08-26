@@ -288,6 +288,9 @@ mod tests {
     #[test]
     fn the_backup_cycle_creates_and_then_verifies_a_snapshot() {
         let root = std::env::temp_dir().join(format!("chimera-pipe-bk-{}", std::process::id()));
+        // Windows'ta salt-okunur yedek dosyalari `remove_dir_all`'i
+        // ENGELLER; once isaretleri kaldirmak sart (bkz. backup.rs).
+        crate::backup::clear_read_only_recursive(&root);
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("state")).unwrap();
         std::fs::write(root.join("state/vault.sealed"), vec![7u8; 4096]).unwrap();
@@ -312,6 +315,7 @@ mod tests {
         assert!(!ev.iter().any(|e| e.starts_with("backup.cycle_ok")), "aralik dolmadan yeni yedek ALINMAMALI");
         assert!(ev.iter().any(|e| e.starts_with("backup.verify_ok")));
 
+        crate::backup::clear_read_only_recursive(&root);
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -319,6 +323,7 @@ mod tests {
     #[test]
     fn the_backup_cycle_loudly_reports_a_corrupted_snapshot() {
         let root = std::env::temp_dir().join(format!("chimera-pipe-bkbad-{}", std::process::id()));
+        crate::backup::clear_read_only_recursive(&root);
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("state")).unwrap();
         std::fs::write(root.join("state/vault.sealed"), vec![7u8; 4096]).unwrap();
@@ -346,6 +351,7 @@ mod tests {
             "BOZUK yedek sessizce gecilmis: {ev:?}"
         );
 
+        crate::backup::clear_read_only_recursive(&root);
         let _ = std::fs::remove_dir_all(&root);
     }
 
