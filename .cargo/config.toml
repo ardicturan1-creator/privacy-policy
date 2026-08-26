@@ -1,0 +1,26 @@
+# CHIMERA derleme yapilandirmasi.
+#
+# NOT: Bu dosya, calisilan kaynak arsivinde YOKTU (buyuk olasilikla
+# `.gitignore`/paketleme disinda kalmis) ama `docs/chimera/03-HARDENING.md`
+# SS B'de belgelenen sertlestirme bayraklarini tasimasi gerekiyor.
+# `scripts/release-check.py` bu bayraklar olmadan GECMEZ (yapi makinesi
+# yollari ikiliye sizar) -- yeniden olusturuldu.
+
+[target.x86_64-pc-windows-gnu]
+rustflags = [
+    # ASLR / DEP / yuksek-entropi ASLR: acikca istenir (bkz. 03-HARDENING SS B.1)
+    "-C", "link-arg=-Wl,--dynamicbase",
+    "-C", "link-arg=-Wl,--nxcompat",
+    "-C", "link-arg=-Wl,--high-entropy-va",
+    # Linker seviyesinde sembol temizligi (Cargo `strip=true`'ya EK katman)
+    "-C", "link-arg=-Wl,--strip-all",
+    # Derleme-zamani yol gizleme: yapi makinesinin ev/registry dizinleri
+    # ikili icinde ASLA gorunmemeli (bkz. 03-HARDENING SS H).
+    "--remap-path-prefix", "/root/.cargo/registry=[dep]",
+    "--remap-path-prefix", "/root/.rustup=[rust]",
+    "--remap-path-prefix", "/home/user/privacy-policy=[src]",
+]
+# Capraz derlenmis Windows test ikililerini Wine altinda GERCEKTEN
+# calistirir: `cargo test --target x86_64-pc-windows-gnu` boylece canli
+# bir Windows-ikili test kosumuna donusur.
+runner = "wine"

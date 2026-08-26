@@ -1,0 +1,11 @@
+[package]
+name = "chimera-admin"
+version = "0.1.0"
+edition = "2021"
+description = "CHIMERA Admin — Sifir Guven kontrol paneli (konsol). Shamir(2,3) paylari birlesmeden ayricalikli hicbir komut calismaz."
+
+[dependencies]
+chimera-crypto = { path = "../chimera-crypto" }
+chimera-ipc = { path = "../chimera-ipc" }
+interprocess = "2.4.3"
+sharks = "0.5.0"

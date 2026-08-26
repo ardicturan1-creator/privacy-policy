@@ -1,0 +1,33 @@
+[package]
+name = "chimera-bootstrap"
+version = "0.1.0"
+edition = "2021"
+description = "CHIMERA / MONOLITH — hardware-aware auto-tuning and silent boot core"
+
+# Yalnizca GERCEKTEN calisan, crates.io'dan cekilip derlenmis ve test edilmis
+# bagimliliklar. Tumu bu oturumda `cargo build` + `cargo test` ile dogrulandi.
+# Platform ozel donanim erisimi:
+#   - Vulkan (Linux/Windows/AMD/Intel) : ash, calisma zamaninda dlopen (libloading)
+#   - DXGI (Windows)                   : windows crate, yalnizca windows hedefinde
+#   - NVIDIA                            : `nvidia-smi` alt sureci (surucu kutuphanesi
+#                                          gerektirmez, surucu yoksa zarifce yok sayilir)
+#   - AMD (Linux)                       : /sys/class/drm amdgpu sysfs, dogrudan dosya okuma
+#   - Metal (macOS)                     : BURADA YOK. Apple SDK/framework baglantilari
+#                                          Linux'ta ne apt ile kurulabilir ne de derleme
+#                                          zamaninda dogrulanabilir; gercek bir Mac +
+#                                          Xcode olmadan "calisiyor" iddia etmek hayali
+#                                          islem olur. Bu yuzden koda hic girmedi.
+[dependencies]
+ash = "0.38.0"
+chimera-crypto = { path = "../chimera-crypto" }
+getrandom = "0.4.3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Foundation",
+    "Win32_System_SystemInformation",
+] }
+
+# [profile.release] artik workspace kokunde (../../Cargo.toml) tek yerden tanimli.

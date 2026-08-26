@@ -1,0 +1,34 @@
+[package]
+name = "chimera-core"
+version = "0.1.0"
+edition = "2021"
+description = "CHIMERA Core Daemon — kimlik dogrulamali IPC sunucusu, karsilikli watchdog, siber yanıltma (decoy+tarpit)"
+
+[dependencies]
+chimera-crypto = { path = "../chimera-crypto" }
+chimera-ipc = { path = "../chimera-ipc" }
+blake3 = "1.8.7"
+interprocess = "2.4.3"
+notify = "8.2.0"
+getrandom = "0.4.3"
+ctrlc = "3.5.2"
+governor = "0.10.4"
+fs4 = { version = "1.1.0", features = ["sync"] }
+
+[target.'cfg(windows)'.dependencies]
+widestring = "1"
+windows = { version = "0.62.2", features = [
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Com",
+    "Win32_System_Variant",
+    "Win32_NetworkManagement_WindowsFirewall",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_Registry",
+    "Win32_System_Services",
+    "Win32_System_RestartManager",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_LibraryLoader",
+    "Win32_Security",
+] }

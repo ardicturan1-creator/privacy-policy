@@ -1,0 +1,10 @@
+[package]
+name = "chimera-sentinel"
+version = "0.1.0"
+edition = "2021"
+description = "CHIMERA Sentinel — Core Daemon'un karsilikli watchdog esi"
+
+[dependencies]
+chimera-crypto = { path = "../chimera-crypto" }
+chimera-ipc = { path = "../chimera-ipc" }
+interprocess = "2.4.3"
