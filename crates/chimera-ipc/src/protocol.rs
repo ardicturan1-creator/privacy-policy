@@ -24,6 +24,20 @@ pub enum Request {
     /// bozuldu mu" bilgisini bile digital olarak sorgulayamamasi icin diger
     /// ayricalikli komutlarla AYNI Shamir(2,3) kapisina tabidir.
     VerifyAuditLog { unlock: [u8; 32] },
+    /// Detector/Validator/Executor boru hattini SENKRON olarak bir kez
+    /// calistirir (bkz. `chimera-core::pipeline`) ve bulgu+aksiyon raporunu
+    /// dondurur. Ayricalikli: sistem konfigurasyonu (acik portlar, SMBv1,
+    /// RDP ayarlari) hassas bilgi sayilir.
+    ScanNow { unlock: [u8; 32] },
+    /// Verilen IPv4/IPv6 adresini Windows Firewall uzerinden GERCEKTEN
+    /// bloklar (bkz. `chimera-core::firewall`). Ayricalikli.
+    BlockIp { unlock: [u8; 32], ip: String },
+    /// Daha once CHIMERA tarafindan eklenmis bir engelleme kuralini kaldirir.
+    /// Ayricalikli.
+    UnblockIp { unlock: [u8; 32], ip: String },
+    /// CHIMERA tarafindan eklenmis, halen aktif olan engelleme kurallarini
+    /// listeler. Ayricalikli.
+    ListBlockedIps { unlock: [u8; 32] },
 }
 
 #[derive(Debug, Clone)]
@@ -35,6 +49,8 @@ pub enum Response {
     Denied,
     HeartbeatAck,
     AuditVerifyOk(String),
+    ScanReportOk(String),
+    BlockIpOk(String),
 }
 
 fn put_str(out: &mut Vec<u8>, s: &str) {
@@ -80,6 +96,10 @@ impl Request {
             Request::ListDecoyAlerts { unlock } => { out.push(0x05); out.extend_from_slice(unlock); }
             Request::Heartbeat { source } => { out.push(0x06); put_str(&mut out, source); }
             Request::VerifyAuditLog { unlock } => { out.push(0x07); out.extend_from_slice(unlock); }
+            Request::ScanNow { unlock } => { out.push(0x08); out.extend_from_slice(unlock); }
+            Request::BlockIp { unlock, ip } => { out.push(0x09); out.extend_from_slice(unlock); put_str(&mut out, ip); }
+            Request::UnblockIp { unlock, ip } => { out.push(0x0A); out.extend_from_slice(unlock); put_str(&mut out, ip); }
+            Request::ListBlockedIps { unlock } => { out.push(0x0B); out.extend_from_slice(unlock); }
         }
         out
     }
@@ -99,6 +119,16 @@ impl Request {
             0x05 => Request::ListDecoyAlerts { unlock: get_32(buf, &mut off)? },
             0x06 => Request::Heartbeat { source: get_str(buf, &mut off)? },
             0x07 => Request::VerifyAuditLog { unlock: get_32(buf, &mut off)? },
+            0x08 => Request::ScanNow { unlock: get_32(buf, &mut off)? },
+            0x09 => {
+                let unlock = get_32(buf, &mut off)?;
+                Request::BlockIp { unlock, ip: get_str(buf, &mut off)? }
+            }
+            0x0A => {
+                let unlock = get_32(buf, &mut off)?;
+                Request::UnblockIp { unlock, ip: get_str(buf, &mut off)? }
+            }
+            0x0B => Request::ListBlockedIps { unlock: get_32(buf, &mut off)? },
             _ => return Err(bad()),
         })
     }
@@ -115,6 +145,8 @@ impl Response {
             Response::Denied => out.push(0x84),
             Response::HeartbeatAck => out.push(0x86),
             Response::AuditVerifyOk(s) => { out.push(0x87); put_str(&mut out, s); }
+            Response::ScanReportOk(s) => { out.push(0x88); put_str(&mut out, s); }
+            Response::BlockIpOk(s) => { out.push(0x89); put_str(&mut out, s); }
         }
         out
     }
@@ -130,6 +162,8 @@ impl Response {
             0x84 => Response::Denied,
             0x86 => Response::HeartbeatAck,
             0x87 => Response::AuditVerifyOk(get_str(buf, &mut off)?),
+            0x88 => Response::ScanReportOk(get_str(buf, &mut off)?),
+            0x89 => Response::BlockIpOk(get_str(buf, &mut off)?),
             _ => return Err(bad()),
         })
     }
@@ -149,6 +183,10 @@ mod tests {
             Request::ListDecoyAlerts { unlock: [3u8; 32] },
             Request::Heartbeat { source: "sentinel".into() },
             Request::VerifyAuditLog { unlock: [4u8; 32] },
+            Request::ScanNow { unlock: [5u8; 32] },
+            Request::BlockIp { unlock: [6u8; 32], ip: "203.0.113.7".into() },
+            Request::UnblockIp { unlock: [7u8; 32], ip: "203.0.113.7".into() },
+            Request::ListBlockedIps { unlock: [8u8; 32] },
         ];
         for req in cases {
             let encoded = req.encode();
@@ -167,6 +205,8 @@ mod tests {
             Response::Denied,
             Response::HeartbeatAck,
             Response::AuditVerifyOk("SAGLAM: 3 kayitlik zincir bastan sona tutarli".into()),
+            Response::ScanReportOk("[]".into()),
+            Response::BlockIpOk("bloklandi: 203.0.113.7".into()),
         ];
         for resp in cases {
             let encoded = resp.encode();

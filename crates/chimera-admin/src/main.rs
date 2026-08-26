@@ -19,6 +19,10 @@
 //!   chimera-admin degrade    --root R --share HEX --share HEX <on|off>
 //!   chimera-admin decoys     --root R --share HEX --share HEX
 //!   chimera-admin verify-audit --root R --share HEX --share HEX
+//!   chimera-admin scan         --root R --share HEX --share HEX
+//!   chimera-admin block-ip     --root R --share HEX --share HEX --ip <IP>
+//!   chimera-admin unblock-ip   --root R --share HEX --share HEX --ip <IP>
+//!   chimera-admin list-blocked --root R --share HEX --share HEX
 
 use chimera_ipc::{Identity, Request, Response, TrustStore};
 use interprocess::local_socket::prelude::*;
@@ -56,9 +60,25 @@ fn main() {
             cmd_privileged(&root, &args, move |unlock| Request::SetDegraded { on, unlock }, "MOD DEGISTIRME")
         }
         "verify-audit" => cmd_privileged(&root, &args, |unlock| Request::VerifyAuditLog { unlock }, "DENETIM ZINCIRI DOGRULAMA"),
+        "scan" => cmd_privileged(&root, &args, |unlock| Request::ScanNow { unlock }, "GUVENLIK TARAMASI"),
+        "block-ip" => {
+            let Some(ip) = flag(&args, "--ip") else {
+                eprintln!("kullanim: chimera-admin block-ip --root DIR --share HEX --share HEX --ip <IP>");
+                std::process::exit(2);
+            };
+            cmd_privileged(&root, &args, move |unlock| Request::BlockIp { unlock, ip }, "IP ENGELLEME")
+        }
+        "unblock-ip" => {
+            let Some(ip) = flag(&args, "--ip") else {
+                eprintln!("kullanim: chimera-admin unblock-ip --root DIR --share HEX --share HEX --ip <IP>");
+                std::process::exit(2);
+            };
+            cmd_privileged(&root, &args, move |unlock| Request::UnblockIp { unlock, ip }, "IP ENGELINI KALDIRMA")
+        }
+        "list-blocked" => cmd_privileged(&root, &args, |unlock| Request::ListBlockedIps { unlock }, "ENGELLI IP LISTESI"),
         other => {
             eprintln!("bilinmeyen alt komut: {other}");
-            eprintln!("kullanim: chimera-admin <identity|trust-core|status|logs|decoys|degrade|verify-audit> --root DIR");
+            eprintln!("kullanim: chimera-admin <identity|trust-core|status|logs|decoys|degrade|verify-audit|scan|block-ip|unblock-ip|list-blocked> --root DIR");
             2
         }
     };
@@ -179,6 +199,8 @@ fn cmd_privileged(root: &Path, args: &[String], make_req: impl FnOnce([u8; 32]) 
         Ok(Response::DecoyAlertsOk(s)) => { println!("{s}"); 0 }
         Ok(Response::StatusOk(s)) => { println!("{s}"); 0 }
         Ok(Response::AuditVerifyOk(s)) => { let ok = s.starts_with("SAGLAM") || s.starts_with("BOS"); println!("{s}"); if ok { 0 } else { 1 } }
+        Ok(Response::ScanReportOk(s)) => { println!("{s}"); 0 }
+        Ok(Response::BlockIpOk(s)) => { let ok = !s.starts_with("HATA"); println!("{s}"); if ok { 0 } else { 1 } }
         Ok(other) => { eprintln!("beklenmeyen yanit: {other:?}"); 1 }
         Err(e) => { eprintln!("{e}"); 1 }
     }

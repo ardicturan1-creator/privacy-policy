@@ -23,6 +23,10 @@
 
 mod auditlog;
 mod decoy;
+mod firewall;
+mod pipeline;
+mod remediate;
+mod scanner;
 mod tarpit;
 
 use chimera_crypto::obsidian;
@@ -280,6 +284,13 @@ fn cmd_serve(root: &Path) -> i32 {
     let core_vk_hex = hex(&identity.verifying_key_bytes());
     spawn_sentinel_watchdog(&l, core_vk_hex);
 
+    // --- Detector/Validator/Executor boru hatti: periyodik arka plan
+    // taramasi (bkz. pipeline.rs). `pipeline_running` accept dongusu
+    // biterken (temiz durdurma) false'a cekilir, boylece bu thread de
+    // sonsuza kadar arka planda takili kalmaz.
+    let pipeline_running = Arc::new(AtomicBool::new(true));
+    pipeline::spawn_background_loop(Arc::clone(&pipeline_running), l.audit_log());
+
     // --- IPC sunucusu ---
     let trust = Arc::new(Mutex::new(TrustStore::load(&l.trust_list()).expect("guven deposu")));
     let attestation = Arc::new(chimera_ipc::AttestationStore::load(&l.attestation_list()).expect("attestasyon deposu"));
@@ -348,6 +359,7 @@ fn cmd_serve(root: &Path) -> i32 {
             // kontrolunde GORMESI icin diskte KALICI olarak birakilir.
             // Yalnizca bir sonraki bilincli `chimera-core serve` baslangici
             // temizler (yukaridaki cmd_serve).
+            pipeline_running.store(false, Ordering::SeqCst);
             break;
         }
 
@@ -366,6 +378,7 @@ fn cmd_serve(root: &Path) -> i32 {
         let decoy_alerts = Arc::clone(&decoy_alerts);
         let degraded = Arc::clone(&degraded);
         let l_path = l.audit_log();
+        let root_path = l.root.clone();
 
         std::thread::spawn(move || {
             let trust_snapshot = trust.lock().unwrap();
@@ -382,7 +395,7 @@ fn cmd_serve(root: &Path) -> i32 {
                     Ok(raw) => match Request::decode(&raw) { Ok(r) => r, Err(_) => break },
                     Err(_) => break, // baglanti kapandi
                 };
-                let resp = handle_request(req, &master_key, &decoy_alerts, &degraded, &l_path);
+                let resp = handle_request(req, &master_key, &decoy_alerts, &degraded, &l_path, &root_path);
                 if channel.send(&resp.encode()).is_err() { break; }
             }
         });
@@ -396,6 +409,7 @@ fn handle_request(
     decoy_alerts: &Arc<Mutex<Vec<String>>>,
     degraded: &Arc<AtomicBool>,
     audit_path: &Path,
+    root: &Path,
 ) -> Response {
     let unlocked = |unlock: &[u8; 32]| -> bool {
         match master_key {
@@ -445,6 +459,46 @@ fn handle_request(
                 return Response::Denied;
             }
             Response::AuditVerifyOk(describe_verify(auditlog::verify(audit_path)))
+        }
+        Request::ScanNow { unlock } => {
+            if !unlocked(&unlock) {
+                let _ = auditlog::append(audit_path, "privileged_denied", "ScanNow");
+                return Response::Denied;
+            }
+            let audit_path_owned = audit_path.to_path_buf();
+            let audit = |event: &str, detail: &str| { let _ = auditlog::append(&audit_path_owned, event, detail); };
+            let report = pipeline::run_once(false, &audit);
+            Response::ScanReportOk(report.to_text())
+        }
+        Request::BlockIp { unlock, ip } => {
+            if !unlocked(&unlock) {
+                let _ = auditlog::append(audit_path, "privileged_denied", "BlockIp");
+                return Response::Denied;
+            }
+            match firewall::block_ip(root, &ip) {
+                Ok(msg) => { let _ = auditlog::append(audit_path, "firewall.block", &msg); Response::BlockIpOk(msg) }
+                Err(e) => { let _ = auditlog::append(audit_path, "firewall.block_failed", &e); Response::BlockIpOk(format!("HATA: {e}")) }
+            }
+        }
+        Request::UnblockIp { unlock, ip } => {
+            if !unlocked(&unlock) {
+                let _ = auditlog::append(audit_path, "privileged_denied", "UnblockIp");
+                return Response::Denied;
+            }
+            match firewall::unblock_ip(root, &ip) {
+                Ok(msg) => { let _ = auditlog::append(audit_path, "firewall.unblock", &msg); Response::BlockIpOk(msg) }
+                Err(e) => { let _ = auditlog::append(audit_path, "firewall.unblock_failed", &e); Response::BlockIpOk(format!("HATA: {e}")) }
+            }
+        }
+        Request::ListBlockedIps { unlock } => {
+            if !unlocked(&unlock) {
+                let _ = auditlog::append(audit_path, "privileged_denied", "ListBlockedIps");
+                return Response::Denied;
+            }
+            match firewall::list_blocked_ips(root) {
+                Ok(ips) => Response::BlockIpOk(format!("[{}]", ips.join(","))),
+                Err(e) => Response::BlockIpOk(format!("HATA: {e}")),
+            }
         }
     }
 }

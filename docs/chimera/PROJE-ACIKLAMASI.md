@@ -34,6 +34,22 @@ otomatik olarak toparlar. Bilinçli bir `stop` komutu HER ZAMAN saygı görür.
 
 ## Öne çıkan güvenlik özellikleri
 
+- **Gerçek ağ saldırısı engelleme:** `chimera-core`, Windows Güvenlik
+  Duvarı'nın resmî COM API'si (`INetFwPolicy2`/`INetFwRule`) üzerinden
+  şüpheli IP adreslerini HEM gelen HEM giden yönde gerçekten bloklar —
+  bu, Windows'un kendi kernel-seviyeli filtreleme motorunu (WFP) kullanır,
+  özel bir kernel driver YAZILMADI/GEREKMEDİ (imzasız bir driver zaten
+  gerçek bir Windows'ta yüklenmez).
+- **Otomatik güvenlik taraması + üç-aşamalı güvenli düzeltme:** Arka
+  planda periyodik olarak (ve talep üzerine `scan` komutuyla) somut
+  Windows sertleştirme kontrolleri çalışır (SMBv1, RDP NLA, güvenlik
+  duvarı durumu, açık portlar, autorun kayıtları). Bulgular
+  **Detector → Validator → Executor** üç aşamasından geçer: yalnızca
+  önceden onaylı, dar ve GERİ ALINABİLİR düzeltmeler (whitelist)
+  otomatik uygulanır; geri kalan her şey yalnızca RAPORLANIR, insan
+  onayı olmadan sisteme dokunulmaz — otonom, denetimsiz bir "AI kernel
+  yaması" mimarisi KASITLI olarak yoktur (hiçbir ciddi EDR ürünü bunu
+  yapmaz).
 - **Post-kuantum kimlik doğrulama:** Her bileşenin kalıcı bir ML-DSA-87
   imza kimliği vardır; el sıkışmalar ML-KEM-1024 ile şifrelenir,
   XChaCha20-Poly1305 ile korunan bir oturum anahtarı türetilir.
@@ -95,6 +111,10 @@ chimera-core.exe serve --root C:\ChimeraData
 :: (ayri bir terminalde)
 chimera-admin.exe status --root C:\ChimeraData
 chimera-admin.exe verify-audit --root C:\ChimeraData --share <A> --share <B>
+chimera-admin.exe scan         --root C:\ChimeraData --share <A> --share <B>
+chimera-admin.exe block-ip     --root C:\ChimeraData --share <A> --share <B> --ip <SUPHELI-IP>
+chimera-admin.exe list-blocked --root C:\ChimeraData --share <A> --share <B>
+chimera-admin.exe unblock-ip   --root C:\ChimeraData --share <A> --share <B> --ip <SUPHELI-IP>
 ```
 
 ## Nasıl doğrulandı?
@@ -104,11 +124,19 @@ Bu paketteki 3 `.exe`, bu Linux tabanlı geliştirme ortamında
 **Wine 9.0 altında gerçek Windows ikili yürütmesi olarak** test edilmiştir
 (salt statik çapraz-derleme doğrulaması değil): kimlik üretimi, güven
 kurulumu, provizyon, IPC üzerinden gerçek el sıkışma + kalp atışı trafiği,
-ayrıcalıklı komutlar, ve kasıtlı olarak kurcalanmış bir denetim kaydının
-hem yerel hem uzaktan doğrulama yollarıyla YAKALANMASI dahil. Ayrıca 58
-otomatik birim/entegrasyon testi (`cargo test --workspace`) ve bir PE
-başlık/sertleştirme denetim betiği (`scripts/release-check.py`) ile
-desteklenmektedir.
+ayrıcalıklı komutlar, güvenlik taraması (`GetExtendedTcpTable` ile GERÇEK
+dinleyen port verisi), IP engelleme/kaldırma, ve kasıtlı olarak
+kurcalanmış bir denetim kaydının hem yerel hem uzaktan doğrulama
+yollarıyla YAKALANMASI dahil. Ayrıca 67 otomatik birim/entegrasyon testi
+(`cargo test --workspace`) ve bir PE başlık/sertleştirme denetim betiği
+(`scripts/release-check.py`) ile desteklenmektedir.
+
+Wine'ın Windows Güvenlik Duvarı COM API desteği KISMİdir — bu nedenle IP
+engelleme özelliğinin "gerçek bir paketi gerçekten durdurduğu" nihai
+kanıtı yalnızca GERÇEK bir Windows makinesinde tamamlanabilir; bu turda
+doğrulanan, çağrı dizisinin/tiplerinin üretilmiş Windows API'lerine karşı
+DOĞRU ve çökmesiz çalıştığıdır (ayrıntılar için
+`04-TURN5-DERINLEMESINE-IYILESTIRME.md` ve `05-TURN6-ULTRA-GUARD.md`).
 
 Bu belge ve pakette teknik olarak doğrulanamamış hiçbir iddia
 bulunmamaktadır: her özellik ya gerçek bir testle ya da gerçek bir canlı
