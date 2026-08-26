@@ -23,9 +23,23 @@ fn main() {
     let cmd = args.get(1).map(String::as_str).unwrap_or("watch");
     let root = PathBuf::from(flag(&args, "--root").unwrap_or_else(|| "/opt/chimera-core".to_string()));
 
+    {
+        let log_path = root.join("logs/client.jsonl");
+        std::panic::set_hook(Box::new(move |info| {
+            let detail = info.to_string().replace('"', "'").replace('\n', " ");
+            let _ = std::fs::create_dir_all(log_path.parent().unwrap());
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+                use std::io::Write as _;
+                let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                let _ = writeln!(f, "{{\"ts\":{ts},\"event\":\"panic\",\"detail\":\"{detail}\"}}");
+            }
+            eprintln!("chimera-sentinel: beklenmeyen bir ic hata olustu; ayrintilar {} icinde.", "logs/client.jsonl");
+        }));
+    }
+
     let code = match cmd {
         "identity" => cmd_identity(&root),
-        "watch" => cmd_watch(&root, flag(&args, "--core-pubkey-hex")),
+        "watch" => cmd_watch(&root, flag(&args, "--core-pubkey-hex"), flag(&args, "--core-binary-hash")),
         other => {
             eprintln!("bilinmeyen alt komut: {other}");
             2
@@ -44,10 +58,16 @@ fn cmd_identity(root: &Path) -> i32 {
     };
     println!("chimera-sentinel kimlik parmak izi: {}", id.fingerprint());
     println!("acik anahtar (hex): {}", hex(&id.verifying_key_bytes()));
+    match chimera_ipc::attestation::self_binary_hash() {
+        Ok(h) => println!("ikili ozet (BLAKE3): {h}"),
+        Err(e) => eprintln!("ikili ozet hesaplanamadi: {e}"),
+    }
     0
 }
 
-fn cmd_watch(root: &Path, core_pubkey_hex: Option<String>) -> i32 {
+fn attestation_list(root: &Path) -> PathBuf { root.join("state/sentinel_attest.list") }
+
+fn cmd_watch(root: &Path, core_pubkey_hex: Option<String>, core_binary_hash: Option<String>) -> i32 {
     // Kendi PID'imizi yaz: core'un bizi tekrar tekrar (her kendi
     // yeniden baslamasinda) COGALTMASINI onler. `main`'in sonunda,
     // process cikarken bu dosya silinir (bkz. asagida ctrlc benzeri
@@ -68,9 +88,17 @@ fn cmd_watch(root: &Path, core_pubkey_hex: Option<String>) -> i32 {
 
     // Bootstrap: core'un TAM acik anahtari, bizi baslatan SUREC tarafindan
     // (argv uzerinden, ayni makinede) bildirildi -- ag uzerinden degil.
+    let mut attest = match chimera_ipc::AttestationStore::load(&attestation_list(root)) {
+        Ok(a) => a,
+        Err(e) => { eprintln!("attestasyon deposu okunamadi: {e}"); return 1; }
+    };
     if let Some(hex_str) = core_pubkey_hex {
         if let Ok(bytes) = unhex(&hex_str) {
             let _ = trust.trust(&bytes);
+            if let Some(bh) = &core_binary_hash {
+                let fp = chimera_ipc::trust::fingerprint_of(&bytes);
+                let _ = attest.pin(&fp, bh);
+            }
         }
     }
 
@@ -83,7 +111,7 @@ fn cmd_watch(root: &Path, core_pubkey_hex: Option<String>) -> i32 {
         // bu sayede taze kalir (bkz. core'daki `sentinel_is_alive`).
         let _ = std::fs::write(&pid_path, std::process::id().to_string());
 
-        match heartbeat_once(root, &identity, &trust) {
+        match heartbeat_once(root, &identity, &trust, &attest) {
             Ok(()) => {
                 consecutive_failures = 0;
             }
@@ -105,11 +133,11 @@ fn cmd_watch(root: &Path, core_pubkey_hex: Option<String>) -> i32 {
     }
 }
 
-fn heartbeat_once(root: &Path, identity: &Identity, trust: &TrustStore) -> Result<(), String> {
+fn heartbeat_once(root: &Path, identity: &Identity, trust: &TrustStore, attestation: &chimera_ipc::AttestationStore) -> Result<(), String> {
     let name = chimera_ipc::socket_name(root).map_err(|e| e.to_string())?;
     let mut stream = interprocess::local_socket::Stream::connect(name).map_err(|e| format!("connect: {e}"))?;
 
-    let session_key = chimera_ipc::run_client_handshake(&mut stream, &identity.keypair, trust).map_err(|e| format!("handshake: {e}"))?;
+    let session_key = chimera_ipc::run_client_handshake(&mut stream, &identity.keypair, trust, attestation).map_err(|e| format!("handshake: {e}"))?;
     let mut channel = chimera_ipc::SecureChannel::new(stream, session_key);
 
     let resp = chimera_ipc::call(&mut channel, &Request::Heartbeat { source: "sentinel".into() }).map_err(|e| format!("call: {e}"))?;

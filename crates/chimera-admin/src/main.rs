@@ -29,9 +29,24 @@ fn main() {
     let cmd = args.get(1).map(String::as_str).unwrap_or("status");
     let root = PathBuf::from(flag(&args, "--root").unwrap_or_else(|| "/opt/chimera-core".to_string()));
 
+    {
+        let log_path = root.join("logs/client.jsonl");
+        std::panic::set_hook(Box::new(move |info| {
+            let detail = info.to_string().replace('"', "'").replace('\n', " ");
+            let _ = std::fs::create_dir_all(log_path.parent().unwrap());
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+                use std::io::Write as _;
+                let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                let _ = writeln!(f, "{{\"ts\":{ts},\"event\":\"panic\",\"detail\":\"{detail}\"}}");
+            }
+            eprintln!("chimera-admin: beklenmeyen bir ic hata olustu; ayrintilar {} icinde.", "logs/client.jsonl");
+        }));
+    }
+
     let code = match cmd {
         "identity" => cmd_identity(&root),
         "trust-core" => cmd_trust_core(&root, flag(&args, "--pubkey")),
+        "attest-core" => cmd_attest_core(&root, flag(&args, "--pubkey"), flag(&args, "--binary-hash")),
         "status" => cmd_status(&root),
         "logs" => cmd_privileged(&root, &args, |unlock| Request::GetLogs { unlock }, "GUNLUKLER"),
         "decoys" => cmd_privileged(&root, &args, |unlock| Request::ListDecoyAlerts { unlock }, "DECOY UYARILARI"),
@@ -50,6 +65,7 @@ fn main() {
 
 fn identity_dir(root: &Path) -> PathBuf { root.join("state/admin_identity") }
 fn trust_list(root: &Path) -> PathBuf { root.join("state/admin_trusted.list") }
+fn attestation_list(root: &Path) -> PathBuf { root.join("state/admin_attest.list") }
 
 fn cmd_identity(root: &Path) -> i32 {
     let id = match Identity::load_or_create(&identity_dir(root)) {
@@ -58,6 +74,10 @@ fn cmd_identity(root: &Path) -> i32 {
     };
     println!("chimera-admin kimlik parmak izi: {}", id.fingerprint());
     println!("acik anahtar (hex): {}", hex(&id.verifying_key_bytes()));
+    match chimera_ipc::attestation::self_binary_hash() {
+        Ok(h) => println!("ikili ozet (BLAKE3): {h}"),
+        Err(e) => eprintln!("ikili ozet hesaplanamadi: {e}"),
+    }
     println!("\nBu deger 'chimera-core trust <hex>' ile Core'un guven deposuna eklenmelidir.");
     0
 }
@@ -79,12 +99,31 @@ fn cmd_trust_core(root: &Path, hex_arg: Option<String>) -> i32 {
     0
 }
 
+fn cmd_attest_core(root: &Path, pubkey_hex: Option<String>, binary_hash_hex: Option<String>) -> i32 {
+    let (Some(pk), Some(bh)) = (pubkey_hex, binary_hash_hex) else {
+        eprintln!("kullanim: chimera-admin attest-core --pubkey <hex> --binary-hash <blake3-hex>");
+        return 2;
+    };
+    let Ok(vk_bytes) = unhex(&pk) else { eprintln!("gecersiz hex"); return 1; };
+    let mut attest = match chimera_ipc::AttestationStore::load(&attestation_list(root)) {
+        Ok(a) => a,
+        Err(e) => { eprintln!("{e}"); return 1; }
+    };
+    let fp = chimera_ipc::trust::fingerprint_of(&vk_bytes);
+    if let Err(e) = attest.pin(&fp, &bh) {
+        eprintln!("sabitlenemedi: {e}"); return 1;
+    }
+    println!("sabitlendi: {fp} -> {bh}");
+    0
+}
+
 fn connect(root: &Path) -> Result<chimera_ipc::SecureChannel<interprocess::local_socket::Stream>, String> {
     let identity = Identity::load_or_create(&identity_dir(root)).map_err(|e| e.to_string())?;
     let trust = TrustStore::load(&trust_list(root)).map_err(|e| e.to_string())?;
+    let attestation = chimera_ipc::AttestationStore::load(&attestation_list(root)).map_err(|e| e.to_string())?;
     let name = chimera_ipc::socket_name(root).map_err(|e| e.to_string())?;
     let mut stream = interprocess::local_socket::Stream::connect(name).map_err(|e| format!("core'a baglanilamadi: {e} (calisiyor mu? 'chimera-core serve' baslatilmis mi?)"))?;
-    let session_key = chimera_ipc::run_client_handshake(&mut stream, &identity.keypair, &trust)
+    let session_key = chimera_ipc::run_client_handshake(&mut stream, &identity.keypair, &trust, &attestation)
         .map_err(|e| format!("el sikisma basarisiz: {e} (once 'chimera-core trust <admin-hex>' ile guvenilir kilindiniz mi?)"))?;
     Ok(chimera_ipc::SecureChannel::new(stream, session_key))
 }

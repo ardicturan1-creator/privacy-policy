@@ -20,6 +20,7 @@
 //!   4. Oturum anahtarı HKDF-SHA256 ile türetilir; sonraki her mesaj
 //!      XChaCha20-Poly1305 ile ayrı, rastgele nonce'larla mühürlenir.
 
+pub mod attestation;
 pub mod channel;
 pub mod endpoint;
 pub mod handshake;
@@ -27,6 +28,7 @@ pub mod identity;
 pub mod protocol;
 pub mod trust;
 
+pub use attestation::AttestationStore;
 pub use channel::SecureChannel;
 pub use endpoint::socket_name;
 pub use handshake::{run_client_handshake, run_server_handshake, HandshakeError};

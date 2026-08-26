@@ -1,3 +1,34 @@
 [target.x86_64-pc-windows-gnu]
 linker = "x86_64-w64-mingw32-gcc"
 ar = "x86_64-w64-mingw32-gcc-ar"
+# Sertlestirme (bkz. docs/chimera/03-HARDENING.md SS1):
+#   --dynamicbase/--nxcompat/--high-entropy-va : ASLR + DEP zaten rustc
+#     varsayilaniyla acik geliyordu (PE DllCharacteristics ile dogrulandi);
+#     burada ACIKCA yazilmasi, varsayilanin gelecekte sessizce degismesine
+#     karsi bir guvencedir.
+#   --dynamicbase iki kez zararsizdir (ld yinelenen bayraklari yok sayar).
+#   --strip-all   : sembol tablosunu linker seviyesinde de temizler
+#     (Cargo profile.release.strip zaten cogunu yapiyor; bu ikinci bir kat).
+# Control Flow Guard (/guard:cf) BURADA YOK: CFG yalnizca MSVC linker'in
+# (link.exe) desteklegi bir PE ozelligidir; GNU ld (mingw) CFG tablolarini
+# yazamaz. Gercek CFG icin `x86_64-pc-windows-msvc` hedefi + gercek bir
+# Windows makinesinde MSVC/Windows SDK gerekir — bu Linux ortaminda ne
+# kurulabilir ne dogrulanabilir. Bkz. rapor SS I (Windows mitigation durumu).
+rustflags = [
+    "-C", "link-args=-Wl,--dynamicbase,--nxcompat,--high-entropy-va,--strip-all",
+    # Kaynak yollarini derleme aninda yeniden yazar: panic/backtrace/debug
+    # bilgisinde artik "/home/user/privacy-policy/..." veya
+    # "/root/.cargo/registry/..." DEGIL, asagidaki kisa etiketler gorunur.
+    # Bu, `strings binary.exe` ile yapi makinesinin dosya sistemi duzenini
+    # (kullanici adi, dizin yapisi) ogrenmeyi engeller. Standart, stabil
+    # bir rustc ozelligi (reproducible-builds projesinde de kullanilir) —
+    # ozel bir gizleme hack'i degildir.
+    "--remap-path-prefix=/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f=<deps>",
+    "--remap-path-prefix=/home/user/privacy-policy=<chimera>",
+]
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+    "--remap-path-prefix=/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f=<deps>",
+    "--remap-path-prefix=/home/user/privacy-policy=<chimera>",
+]

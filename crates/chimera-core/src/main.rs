@@ -26,6 +26,8 @@ mod tarpit;
 use chimera_crypto::obsidian;
 use chimera_ipc::{Identity, Request, Response, TrustStore};
 use interprocess::local_socket::{prelude::*, ListenerOptions};
+#[cfg(windows)]
+use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,14 +40,30 @@ fn main() {
     let root = flag(&args, "--root").unwrap_or_else(|| "/opt/chimera-core".to_string());
     let root = PathBuf::from(root);
 
+    // Panic sertlestirmesi: konsola/stdout'a YALNIZCA genel bir mesaj
+    // basilir (dosya yolu, satir numarasi, dahili tur/mesaj SIZDIRILMAZ);
+    // TAM detay ise meşru hata ayiklama icin denetim kaydina yazilir.
+    // `--remap-path-prefix` (bkz. .cargo/config.toml) zaten yapi makinesi
+    // yollarini kaldirmisti — bu katman panic METNININ KENDISINI de
+    // kullanicidan/gozlemciden gizler.
+    {
+        let log_path = root.join("logs/audit.jsonl");
+        std::panic::set_hook(Box::new(move |info| {
+            let detail = info.to_string().replace('"', "'").replace('\n', " ");
+            append_line(&log_path, &format!("{{\"ts\":{},\"event\":\"panic\",\"detail\":\"{detail}\"}}", unix_now()));
+            eprintln!("chimera-core: beklenmeyen bir ic hata olustu; ayrintilar denetim kaydinda.");
+        }));
+    }
+
     let code = match cmd {
         "identity" => cmd_identity(&root),
         "trust" => cmd_trust(&root, flag(&args, "--pubkey")),
+        "attest" => cmd_attest(&root, flag(&args, "--pubkey"), flag(&args, "--binary-hash")),
         "provision" => cmd_provision(&root, flag(&args, "--password")),
         "serve" => cmd_serve(&root),
         other => {
             eprintln!("bilinmeyen alt komut: {other}");
-            eprintln!("kullanim: chimera-core <identity|trust|provision|serve> --root DIR");
+            eprintln!("kullanim: chimera-core <identity|trust|attest|provision|serve> --root DIR");
             2
         }
     };
@@ -62,6 +80,7 @@ struct Layout {
 impl Layout {
     fn identity_dir(&self) -> PathBuf { self.root.join("state/core_identity") }
     fn trust_list(&self) -> PathBuf { self.root.join("state/trusted_peers.list") }
+    fn attestation_list(&self) -> PathBuf { self.root.join("state/trusted_peers.attest") }
     fn vault(&self) -> PathBuf { self.root.join("state/vault.sealed") }
     fn stop_flag(&self) -> PathBuf { self.root.join("runtime/stop.flag") }
     fn audit_log(&self) -> PathBuf { self.root.join("logs/audit.jsonl") }
@@ -78,6 +97,10 @@ fn cmd_identity(root: &Path) -> i32 {
     println!("chimera-core kimlik parmak izi: {}", id.fingerprint());
     println!("Bu deger, admin/sentinel'in guven deposuna eklenmesi icin karsi tarafa GUVENLI bir kanaldan iletilmelidir.");
     println!("acik anahtar (hex): {}", hex(&id.verifying_key_bytes()));
+    match chimera_ipc::attestation::self_binary_hash() {
+        Ok(h) => println!("ikili ozet (BLAKE3): {h}"),
+        Err(e) => eprintln!("ikili ozet hesaplanamadi: {e}"),
+    }
     0
 }
 
@@ -100,6 +123,33 @@ fn cmd_trust(root: &Path, fp_or_hex: Option<String>) -> i32 {
         return 1;
     }
     println!("guvenildi: {}", chimera_ipc::trust::fingerprint_of(&bytes));
+    println!("(opsiyonel ama ONERILEN: 'chimera-core attest --pubkey {arg} --binary-hash <esin-bildirdigi-ozet>' ile bu esin ikili ozetini de sabitleyin)");
+    0
+}
+
+/// Bir esin (admin/sentinel) ikili ozetini SABITLER (bkz. `chimera_ipc::attestation`).
+/// Sabitlendikten sonra, o es CALINMIS bir kimlik anahtariyla bile
+/// DEGISTIRILMIS bir ikiliyle baglanmaya calisirsa el sikisma reddedilir.
+/// `--binary-hash` verilmezse, esin kendi `identity`/`attest-self` ciktisindan
+/// okunan degeri operator elle girer — bu KASITLI bir ADIM: sabitleme,
+/// otomatik degil, operatorun ACIKCA dogruladigi bir eylem olmalidir.
+fn cmd_attest(root: &Path, pubkey_hex: Option<String>, binary_hash_hex: Option<String>) -> i32 {
+    let (Some(pk), Some(bh)) = (pubkey_hex, binary_hash_hex) else {
+        eprintln!("kullanim: chimera-core attest --pubkey <hex> --binary-hash <blake3-hex>");
+        eprintln!("(karsi tarafin kendi ozetini almak icin: chimera-core/chimera-sentinel/chimera-admin 'identity' cikisindaki 'ikili ozet' satirina bakin)");
+        return 2;
+    };
+    let Ok(vk_bytes) = unhex(&pk) else { eprintln!("gecersiz pubkey hex"); return 1; };
+    let l = layout(root);
+    let mut attest = match chimera_ipc::AttestationStore::load(&l.attestation_list()) {
+        Ok(a) => a,
+        Err(e) => { eprintln!("{e}"); return 1; }
+    };
+    let fp = chimera_ipc::trust::fingerprint_of(&vk_bytes);
+    if let Err(e) = attest.pin(&fp, &bh) {
+        eprintln!("sabitlenemedi: {e}"); return 1;
+    }
+    println!("sabitlendi: {fp} -> {bh}");
     0
 }
 
@@ -145,6 +195,7 @@ fn cmd_serve(root: &Path) -> i32 {
         Err(e) => { eprintln!("kimlik yuklenemedi: {e}"); return 1; }
     };
     audit(&l, "core.start", &format!("fingerprint={}", identity.fingerprint()));
+    maybe_log_debugger_presence(&l);
 
     // --- Kasayi bellekte ac (diskte hicbir zaman acik anahtar yok) ---
     let vault = std::fs::read(l.vault()).ok().and_then(|buf| {
@@ -199,11 +250,24 @@ fn cmd_serve(root: &Path) -> i32 {
 
     // --- IPC sunucusu ---
     let trust = Arc::new(Mutex::new(TrustStore::load(&l.trust_list()).expect("guven deposu")));
+    let attestation = Arc::new(chimera_ipc::AttestationStore::load(&l.attestation_list()).expect("attestasyon deposu"));
     let name = match chimera_ipc::socket_name(&l.root) {
         Ok(n) => n,
         Err(e) => { eprintln!("soket adi gecersiz: {e}"); return 1; }
     };
-    let listener = match ListenerOptions::new().name(name).create_sync() {
+    let listener_opts = ListenerOptions::new().name(name);
+    #[cfg(windows)]
+    let listener_opts = match windows_pipe_acl() {
+        Ok(sd) => {
+            use interprocess::os::windows::local_socket::ListenerOptionsExt;
+            listener_opts.security_descriptor(sd)
+        }
+        Err(e) => {
+            eprintln!("UYARI: Named Pipe ACL kurulamadi ({e}) — varsayilan (daha genis) izinlerle devam ediliyor");
+            listener_opts
+        }
+    };
+    let listener = match listener_opts.create_sync() {
         Ok(l) => l,
         Err(e) => { eprintln!("IPC dinleyici baslatilamadi: {e}"); return 1; }
     };
@@ -214,6 +278,7 @@ fn cmd_serve(root: &Path) -> i32 {
         let identity_sk = identity.keypair.signing_key.clone();
         let identity_vk = identity.keypair.verifying_key.clone();
         let trust = Arc::clone(&trust);
+        let attestation = Arc::clone(&attestation);
         let master_key = Arc::clone(&master_key);
         let decoy_alerts = Arc::clone(&decoy_alerts);
         let degraded = Arc::clone(&degraded);
@@ -222,7 +287,7 @@ fn cmd_serve(root: &Path) -> i32 {
         std::thread::spawn(move || {
             let trust_snapshot = trust.lock().unwrap();
             let id_kp = chimera_crypto::obsidian::DsaKeypair { signing_key: identity_sk, verifying_key: identity_vk };
-            let session_key = match chimera_ipc::run_server_handshake(&mut stream, &id_kp, &trust_snapshot) {
+            let session_key = match chimera_ipc::run_server_handshake(&mut stream, &id_kp, &trust_snapshot, &attestation) {
                 Ok(k) => k,
                 Err(e) => { append_line(&l_path, &format!("{{\"ts\":{},\"event\":\"handshake_rejected\",\"detail\":\"{e}\"}}", unix_now())); return; }
             };
@@ -319,7 +384,20 @@ fn bootstrap_trust_sentinel(l: &Layout) -> std::io::Result<()> {
     };
     let bytes = unhex(hex_str).map_err(|_| std::io::Error::other("gecersiz hex"))?;
     let mut trust = TrustStore::load(&l.trust_list())?;
-    trust.trust(&bytes)
+    trust.trust(&bytes)?;
+
+    // Sentinel'in ikili ozetini de AYNI yerel (argv uzerinden, ag disi)
+    // bootstrap sirasinda sabitleriz: bu, core'un KENDI baslattigi bir alt
+    // surece bakip ozetini okumasidir -- ag uzerinden gelen bir iddia
+    // degil, guvenilir bir yerel gozlemdir. Bir sonraki el sikismada bu
+    // ozet degismisse (sentinel ikilisi disaridan degistirilmisse) tespit
+    // edilir.
+    if let Some(hash_line) = text.lines().find_map(|line| line.strip_prefix("ikili ozet (BLAKE3): ")) {
+        let mut attest = chimera_ipc::AttestationStore::load(&l.attestation_list())?;
+        let fp = chimera_ipc::trust::fingerprint_of(&bytes);
+        attest.pin(&fp, hash_line)?;
+    }
+    Ok(())
 }
 
 /// Sentinel'in halihazirda CANLI olup olmadigini kontrol eder. Bu, core her
@@ -371,6 +449,9 @@ fn spawn_sentinel_watchdog(l: &Layout, core_vk_hex: String) {
             let exe = which_sentinel();
             let mut cmd = std::process::Command::new(&exe);
             cmd.arg("watch").arg("--root").arg(&root).arg("--core-pubkey-hex").arg(&core_vk_hex);
+            if let Ok(h) = chimera_ipc::attestation::self_binary_hash() {
+                cmd.arg("--core-binary-hash").arg(h);
+            }
             let start = Instant::now();
             match cmd.spawn() {
                 Ok(mut child) => {
@@ -394,6 +475,53 @@ fn which_sentinel() -> PathBuf {
     let mut p = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("chimera-core"));
     p.set_file_name(if cfg!(windows) { "chimera-sentinel.exe" } else { "chimera-sentinel" });
     p
+}
+
+/// Named Pipe'a erisimi, hicbir kimlik-dogrulama katmanina guvenmeden
+/// ISLETIM SISTEMI SEVIYESINDE de daraltir: yalnizca LocalSystem ve
+/// yerlesik Yoneticiler grubu baglanabilir. Bu, "bir bilesen sadece
+/// process adina veya pipe adina guvenerek trusted kabul edilmemeli"
+/// gereksiniminin OS-ACL katmanindaki karsiligidir — el sikisma zaten
+/// kriptografik kimlik dogrulamasi yapiyor, bu KATMANLI bir ek savunmadir
+/// (varsayilan Named Pipe ACL'i, ayni makinedeki HERKESE yazma izni verir).
+///
+/// SDDL: `D:` (DACL) `(A;;GA;;;SY)` SYSTEM'e Generic All, `(A;;GA;;;BA)`
+/// Built-in Administrators'a Generic All. Baska hicbir ACE yok -> baska
+/// hicbir hesap (dahil "Everyone"/"Authenticated Users") baglanamaz.
+#[cfg(windows)]
+fn windows_pipe_acl() -> io::Result<interprocess::os::windows::security_descriptor::SecurityDescriptor> {
+    use widestring::U16CString;
+    let sddl = U16CString::from_str("D:(A;;GA;;;SY)(A;;GA;;;BA)").map_err(|e| io::Error::other(e.to_string()))?;
+    interprocess::os::windows::security_descriptor::SecurityDescriptor::deserialize(&sddl)
+}
+
+/// TEK, opsiyonel, log-only anti-analiz katmani. Bilinçli sinirlar:
+///   - Varsayilan olarak KAPALI (`CHIMERA_LOG_DEBUGGER=1` gerekir) — kurumsal
+///     ortamlarda meşru bir hata ayiklayici/APM ajaninin baglanmasi YANLIŞ
+///     POZITIF uretmemesi icin operator ACIKCA acmalidir.
+///   - Tespit edilirse yalnizca DENETIM KAYDINA yazilir — surec sonlanmaz,
+///     veri silinmez, kullanici engellenmez. Bu maddenin talebi acikca
+///     "anti-debugging'i TEK guvenlik mekanizmasi yapma" idi.
+///   - `IsDebuggerPresent`, standart, iyi bilinen, KOLAYCA ATLATILABILEN
+///     bir Win32 API'sidir (PEB.BeingDebugged bayragini okur). Bunun
+///     BILEREK boyle oldugunu kabul ediyoruz: gercek koruma imza+attestation
+///     katmanlarindan gelir (bkz. handshake.rs), bu yalnizca "ucuz saldirgan"
+///     (Tehdit Modeli Seviye 1-2) icin bir sinyal katmanidir.
+fn maybe_log_debugger_presence(l: &Layout) {
+    if std::env::var("CHIMERA_LOG_DEBUGGER").as_deref() != Ok("1") {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        let present = unsafe { windows::Win32::System::Diagnostics::Debug::IsDebuggerPresent() };
+        if present.as_bool() {
+            audit(l, "security.debugger_detected", "IsDebuggerPresent=true (yalnizca bilgi amacli, aksiyon alinmadi)");
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = l;
+    }
 }
 
 fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
