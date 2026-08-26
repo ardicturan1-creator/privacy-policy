@@ -22,6 +22,8 @@
 //! `stop` komutu (`runtime/stop.flag`) ise HER ZAMAN saygı görür.
 
 mod auditlog;
+mod autoblock;
+mod bruteforce;
 mod circuit_breaker;
 mod decoy;
 mod firewall;
@@ -344,16 +346,70 @@ fn cmd_serve(root: &Path) -> i32 {
         });
     }
 
-    // --- Siber yaniltma: tarpit ---
+    // --- Siber yaniltma: COKLU PORT tarpit + TTL'li oto-blok beslemesi ---
+    //
+    // Turn 7 / Faz 2: tarpit artik saldirganlarin GERCEKTEN taradigi
+    // portlara (445/SMB, 3389/RDP) baglanir ve baglanan IP'yi yalnizca
+    // oyalamakla kalmaz, esigi asinca GECICI otomatik engellemeye besler.
+    // Ilk baglantida ASLA engellemez (bkz. tarpit::CONNECT_THRESHOLD).
     {
         let l_path = l.deception_log();
-        let bind = std::env::var("CHIMERA_TARPIT_ADDR").unwrap_or_else(|_| "127.0.0.1:0".to_string());
-        match tarpit::spawn(&bind, move |alert| {
-            let line = format!("{{\"ts\":{},\"type\":\"tarpit_connect\",\"peer\":\"{}\"}}", alert.ts, alert.peer);
+        let audit_path = l.audit_log();
+        let root_for_tarpit = l.root.clone();
+        let window: Arc<Mutex<tarpit::ConnectWindow>> = Arc::new(Mutex::new(tarpit::ConnectWindow::default()));
+
+        let on_connect = move |alert: tarpit::TarpitAlert| {
+            let line = format!(
+                "{{\"ts\":{},\"type\":\"tarpit_connect\",\"peer\":\"{}\",\"port\":{}}}",
+                alert.ts, alert.peer, alert.local_port
+            );
             append_line(&l_path, &line);
-        }) {
-            Ok(_h) => println!("tarpit dinliyor: {bind}"),
-            Err(e) => eprintln!("tarpit baslatilamadi (yoksayiliyor): {e}"),
+
+            let audit = |e: &str, d: &str| { let _ = auditlog::append(&audit_path, e, d); };
+            let crossed = window.lock().unwrap().observe(&alert.peer_ip, alert.ts);
+            if !crossed {
+                return; // esik asilmadi -- yalnizca oyalanir, engellenmez
+            }
+            let reason = format!(
+                "tarpit: {} saniyede {} baglanti (son hedef port {})",
+                tarpit::CONNECT_WINDOW_SECS,
+                tarpit::CONNECT_THRESHOLD,
+                alert.local_port
+            );
+            match autoblock::block_with_ttl(
+                &root_for_tarpit,
+                &alert.peer_ip,
+                autoblock::DEFAULT_TTL_SECS,
+                &reason,
+                alert.ts,
+                &audit,
+            ) {
+                Ok(msg) => audit("tarpit.autoblocked", &msg),
+                Err(e) => audit("tarpit.autoblock_refused", &format!("{}: {e}", alert.peer_ip)),
+            }
+        };
+
+        // Operator `CHIMERA_TARPIT_ADDR` ile TEK bir adres verebilir
+        // (geriye donuk uyumluluk ve test icin); vermezse varsayilan
+        // coklu port kumesi kullanilir.
+        if let Ok(single) = std::env::var("CHIMERA_TARPIT_ADDR") {
+            match tarpit::spawn(&single, on_connect) {
+                Ok(_h) => println!("tarpit dinliyor: {single}"),
+                Err(e) => eprintln!("tarpit baslatilamadi (yoksayiliyor): {e}"),
+            }
+        } else {
+            let host = std::env::var("CHIMERA_TARPIT_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+            let (ok, failed) = tarpit::spawn_multi(&host, tarpit::DEFAULT_TARPIT_PORTS, on_connect);
+            if !ok.is_empty() {
+                println!("tarpit dinliyor: {host} portlari {ok:?}");
+                audit(&l, "tarpit.listening", &format!("{host} {ok:?}"));
+            }
+            // Baglanamayan portlar SESSIZCE yutulmaz: 445/3389 ayricalikli
+            // portlardir ve yonetici olmayan bir hesapta baglanamaz.
+            for (port, e) in &failed {
+                eprintln!("tarpit {host}:{port} baglanamadi (yoksayiliyor): {e}");
+                audit(&l, "tarpit.bind_failed", &format!("{host}:{port}: {e}"));
+            }
         }
     }
 

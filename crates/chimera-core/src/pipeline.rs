@@ -30,6 +30,10 @@ use std::time::Duration;
 fn is_whitelisted(r: &Remediation) -> bool {
     match r {
         Remediation::EnableFirewall | Remediation::DisableSmb1 => true,
+        // GECICI ve GERI ALINABILIR: TTL'i dolunca kendiliginden kalkar
+        // (bkz. autoblock.rs). Kalici engelleme (`block-ip`) DEGILDIR ve
+        // hala Shamir(2,3) ister.
+        Remediation::AutoBlockSourceIp { .. } => true,
         // GERI ALINAMAZ: bir surecin kalici olarak sonlandirilmasi ASLA
         // otomatik calistirilmaz. Devre kesici sureci zaten (geri
         // alinabilir sekilde) ASKIYA ALDI; buradan sonrasi insanindir.
@@ -85,7 +89,7 @@ pub fn run_once(root: &std::path::Path, dry_run: bool, audit: &impl Fn(&str, &st
                     actions_taken.push(format!("[DRY-RUN] {} icin '{}' uygulanacakti", f.id, r.as_str()));
                     continue;
                 }
-                match execute(r) {
+                match execute(root, r) {
                     Ok(msg) => {
                         audit("remediation.applied", &format!("{}: {}", r.as_str(), msg));
                         actions_taken.push(format!("{}: {}", f.id, msg));
@@ -112,10 +116,16 @@ pub fn run_once(root: &std::path::Path, dry_run: bool, audit: &impl Fn(&str, &st
     PipelineReport { findings, actions_taken, needs_review }
 }
 
-fn execute(r: &Remediation) -> Result<String, String> {
+fn execute(root: &std::path::Path, r: &Remediation) -> Result<String, String> {
     match r {
         Remediation::EnableFirewall => crate::remediate::enable_firewall(),
         Remediation::DisableSmb1 => crate::remediate::disable_smb1(),
+        Remediation::AutoBlockSourceIp { ip, reason } => {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            let audit_root = root.join("logs/audit.jsonl");
+            let audit = move |e: &str, d: &str| { let _ = crate::auditlog::append(&audit_root, e, d); };
+            crate::autoblock::block_with_ttl(root, ip, crate::autoblock::DEFAULT_TTL_SECS, reason, now, &audit)
+        }
         // Ulasilamaz: `is_whitelisted` bunu zaten reddediyor. Yine de
         // `unreachable!()` YAZILMADI — Validator bir gun yanlislikla
         // atlanirsa, panic yerine acik bir HATA donmek ve denetim kaydina
@@ -137,6 +147,16 @@ pub fn spawn_background_loop(running: Arc<AtomicBool>, root: std::path::PathBuf)
             let _ = crate::auditlog::append(&audit_log, event, detail);
         };
         while running.load(Ordering::SeqCst) {
+            // TTL vaadini GERCEK kilan adim: suresi dolan otomatik
+            // engeller, tarama yapilmadan ONCE kaldirilir. Bu her turda
+            // calisir; yani bir engel en fazla bir tur (30 dk) fazladan
+            // kalabilir -- bu sinir `07-*.md` SS D'de belgelenmistir.
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            let expired = crate::autoblock::expire_due(&root, now, &audit);
+            if !expired.is_empty() {
+                audit("autoblock.cycle_expired", &format!("{} gecici engel suresi doldu ve kaldirildi", expired.len()));
+            }
+
             let report = run_once(&root, false, &audit);
             audit(
                 "scan.cycle_complete",
@@ -169,9 +189,32 @@ mod tests {
     #[test]
     fn terminating_a_process_is_never_whitelisted_and_execute_refuses_it() {
         assert!(!is_whitelisted(&Remediation::TerminateSuspendedProcess));
-        let err = execute(&Remediation::TerminateSuspendedProcess).unwrap_err();
+        let root = std::env::temp_dir().join(format!("chimera-pipe-x-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&root);
+        let err = execute(&root, &Remediation::TerminateSuspendedProcess).unwrap_err();
         assert!(err.contains("REDDEDILDI"));
         assert!(err.contains("Shamir"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// TTL'li oto-blok whitelist'te OLMALI (gecici + geri alinabilir),
+    /// ama korumali bir adres icin Executor yine de REDDETMELI --
+    /// whitelist'te olmak "her adrese uygulanir" demek DEGILDIR.
+    #[test]
+    fn ttl_autoblock_is_whitelisted_but_still_refuses_protected_addresses() {
+        let r = Remediation::AutoBlockSourceIp { ip: "203.0.113.7".into(), reason: "test".into() };
+        assert!(is_whitelisted(&r), "GECICI + geri alinabilir aksiyon whitelist'te olmali");
+
+        let root = std::env::temp_dir().join(format!("chimera-pipe-ab-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("state")).unwrap();
+
+        let loopback = Remediation::AutoBlockSourceIp { ip: "127.0.0.1".into(), reason: "test".into() };
+        assert!(is_whitelisted(&loopback));
+        let err = execute(&root, &loopback).unwrap_err();
+        assert!(err.contains("otomatik engellenmez"), "loopback engellenmeye CALISILMAMALI: {err}");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Devre kesici bir sureci kuyruga koydugunda, boru hattinin GERCEKTEN

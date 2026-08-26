@@ -16,6 +16,14 @@
 //! yönü engellemek, ele geçirilmiş bir sürecin o adrese GİDEN bağlantı
 //! kurmasını (örn. C2 sunucusuna "eve telefon etmek") engellemez.
 
+// Kural adi ureticileri ve yerel aday defteri yalnizca `#[cfg(windows)]`
+// imp tarafindan VE testler tarafindan kullanilir; Linux'ta test-disi bir
+// derlemede cagrilmadiklari icin "dead_code" uyarisi uretirler. Bu gercek
+// bir olu kod DEGIL, platforma bagli bir cagri grafigidir (ayni desen
+// `bruteforce.rs`'te de var) -- ACIKCA bastiriliyor ki ILERIDE cikacak
+// GERCEK uyarilar bu gurultunun icinde kaybolmasin.
+#![cfg_attr(not(windows), allow(dead_code, unused_imports))]
+
 use std::path::{Path, PathBuf};
 
 const RULE_PREFIX: &str = "CHIMERA-block-";

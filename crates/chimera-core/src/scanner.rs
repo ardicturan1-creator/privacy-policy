@@ -13,6 +13,13 @@
 //! bir düzeltmesi varsa. Diğer her şey yalnızca RAPORLANIR, otomatik
 //! uygulanmaz.
 
+// `Remediation::EnableFirewall`/`DisableSmb1` yalnizca `#[cfg(windows)]`
+// imp icinde uretilir (registry/COM kontrollerinden); Linux'ta test-disi
+// bir derlemede hicbir yerde INSA EDILMEDIKLERI icin uyari verirler. Bu,
+// `firewall.rs`/`bruteforce.rs` ile AYNI platforma-bagli cagri grafigi
+// durumudur -- ACIKCA bastiriliyor.
+#![cfg_attr(not(windows), allow(dead_code))]
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
     Low,
@@ -42,6 +49,12 @@ pub enum Remediation {
     /// GEREKEN" listesine duser ve yalnizca Shamir(2,3) kapisindan gecen
     /// `chimera-admin terminate-process` ile uygulanabilir.
     TerminateSuspendedProcess,
+    /// Brute-force kaynagi bir IP'yi GECICI (TTL'li) olarak engeller.
+    /// **Whitelist'tedir** cunku `autoblock.rs`'te belgelenen uc sarti
+    /// saglar: kalici degil (suresi dolunca kendiliginden kalkar), geri
+    /// alinabilir, ve dar (tek bir uzak adres). Kalici engelleme
+    /// (`block-ip`) hala Shamir(2,3) ister.
+    AutoBlockSourceIp { ip: String, reason: String },
 }
 
 impl Remediation {
@@ -50,6 +63,7 @@ impl Remediation {
             Remediation::EnableFirewall => "enable_firewall",
             Remediation::DisableSmb1 => "disable_smb1",
             Remediation::TerminateSuspendedProcess => "terminate_suspended_process",
+            Remediation::AutoBlockSourceIp { .. } => "autoblock_source_ip",
         }
     }
 }
@@ -74,7 +88,65 @@ pub fn scan(root: &std::path::Path) -> Vec<Finding> {
     imp::check_listening_ports(&mut out);
     imp::check_autoruns(&mut out);
     check_pending_circuit_breaker_trips(root, &mut out);
+    check_bruteforce(&mut out);
+    check_active_autoblocks(root, &mut out);
     out
+}
+
+/// RDP/SMB parola deneme saldirilarini 4625 olay kayitlarindan tespit
+/// eder (bkz. `bruteforce.rs`). Esigi asan HER kaynak IP, TTL'li otomatik
+/// engelleme tasiyan AYRI bir bulgu uretir.
+fn check_bruteforce(out: &mut Vec<Finding>) {
+    match crate::bruteforce::recent_offenders(
+        crate::bruteforce::DEFAULT_WINDOW_SECS,
+        crate::bruteforce::DEFAULT_FAIL_THRESHOLD,
+    ) {
+        Ok(hits) => {
+            for hit in hits {
+                out.push(Finding {
+                    id: format!("bruteforce.{}", hit.ip),
+                    severity: Severity::High,
+                    title: format!("{} kaynagindan {} parola deneme saldirisi", hit.ip, hit.surfaces.join("+")),
+                    detail: hit.as_detail(),
+                    remediation: Some(Remediation::AutoBlockSourceIp {
+                        ip: hit.ip.clone(),
+                        reason: hit.as_detail(),
+                    }),
+                });
+            }
+        }
+        Err(e) => {
+            // Sorgu basarisiz olduysa bunu "saldiri yok" diye YORUMLAMA.
+            // 4625 kayitlari denetim politikasi kapaliysa hic uretilmez;
+            // operator bu korlugu BILMELIDIR.
+            out.push(Finding {
+                id: "bruteforce.unavailable".into(),
+                severity: Severity::Medium,
+                title: "Basarisiz oturum acma (4625) kayitlari okunamadi".into(),
+                detail: format!(
+                    "{e} -- Bu, 'saldiri yok' anlamina GELMEZ; brute-force tespiti su anda KORDUR.                      'Audit Logon Failure' denetim politikasinin acik ve surecin yeterli yetkiye sahip oldugunu dogrulayin."
+                ),
+                remediation: None,
+            });
+        }
+    }
+}
+
+/// O anda yururlukte olan GECICI engelleri operatore gorunur kilar --
+/// "neden bu adrese erisemiyorum?" sorusunun cevabi raporda olmalidir.
+fn check_active_autoblocks(root: &std::path::Path, out: &mut Vec<Finding>) {
+    let n = crate::autoblock::active_count(root);
+    if n == 0 {
+        return;
+    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    out.push(Finding {
+        id: "autoblock.active".into(),
+        severity: Severity::Low,
+        title: format!("{n} gecici (TTL'li) otomatik IP engeli yururlukte"),
+        detail: crate::autoblock::list_text(root, now),
+        remediation: None,
+    });
 }
 
 /// Devre kesicinin askiya alip INSAN ONAYI kuyruguna koydugu surecleri bir
@@ -357,6 +429,46 @@ mod tests {
         let root = std::env::temp_dir().join(format!("chimera-scan-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&root);
         let _ = scan(&root);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Brute-force sorgusu basarisiz oldugunda bu SESSIZCE gecistirilmemeli:
+    /// korluk, "saldiri yok" ile ayni sey DEGILDIR. (Linux'ta sorgu her
+    /// zaman "desteklenmiyor" doner, bu yuzden bu yol GERCEKTEN calisir.)
+    #[cfg(not(windows))]
+    #[test]
+    fn an_unavailable_event_log_is_reported_as_blindness_not_as_safety() {
+        let mut out = Vec::new();
+        check_bruteforce(&mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "bruteforce.unavailable");
+        assert_eq!(out[0].severity, Severity::Medium);
+        assert!(out[0].detail.contains("KORDUR"), "korluk ACIKCA soylenmeli: {}", out[0].detail);
+        assert!(out[0].remediation.is_none(), "okunamayan gunluk icin otomatik aksiyon ONERILMEMELI");
+    }
+
+    #[test]
+    fn active_autoblocks_are_surfaced_but_carry_no_further_action() {
+        let root = std::env::temp_dir().join(format!("chimera-scan-ab-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("state")).unwrap();
+
+        let mut out = Vec::new();
+        check_active_autoblocks(&root, &mut out);
+        assert!(out.is_empty(), "engel yokken bulgu uretilmemeli");
+
+        std::fs::write(
+            root.join("state/autoblock.list"),
+            "{\"ip\":\"203.0.113.7\",\"blocked_at\":1,\"expires_at\":99999999999,\"reason\":\"RDP\"}\n",
+        )
+        .unwrap();
+        let mut out = Vec::new();
+        check_active_autoblocks(&root, &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].severity, Severity::Low);
+        assert!(out[0].detail.contains("203.0.113.7"));
+        assert!(out[0].remediation.is_none());
+
         let _ = std::fs::remove_dir_all(&root);
     }
 
