@@ -19,6 +19,11 @@ pub enum Request {
     SetDegraded { on: bool, unlock: [u8; 32] },
     ListDecoyAlerts { unlock: [u8; 32] },
     Heartbeat { source: String },
+    /// Kanita-dayanikli hash-zincirli denetim kaydinin butunlugunu dogrular
+    /// (bkz. `chimera-core::auditlog`). Ayricalikli: bir saldirganin "zincir
+    /// bozuldu mu" bilgisini bile digital olarak sorgulayamamasi icin diger
+    /// ayricalikli komutlarla AYNI Shamir(2,3) kapisina tabidir.
+    VerifyAuditLog { unlock: [u8; 32] },
 }
 
 #[derive(Debug, Clone)]
@@ -29,6 +34,7 @@ pub enum Response {
     DecoyAlertsOk(String),
     Denied,
     HeartbeatAck,
+    AuditVerifyOk(String),
 }
 
 fn put_str(out: &mut Vec<u8>, s: &str) {
@@ -73,6 +79,7 @@ impl Request {
             }
             Request::ListDecoyAlerts { unlock } => { out.push(0x05); out.extend_from_slice(unlock); }
             Request::Heartbeat { source } => { out.push(0x06); put_str(&mut out, source); }
+            Request::VerifyAuditLog { unlock } => { out.push(0x07); out.extend_from_slice(unlock); }
         }
         out
     }
@@ -91,6 +98,7 @@ impl Request {
             }
             0x05 => Request::ListDecoyAlerts { unlock: get_32(buf, &mut off)? },
             0x06 => Request::Heartbeat { source: get_str(buf, &mut off)? },
+            0x07 => Request::VerifyAuditLog { unlock: get_32(buf, &mut off)? },
             _ => return Err(bad()),
         })
     }
@@ -106,6 +114,7 @@ impl Response {
             Response::DecoyAlertsOk(s) => { out.push(0x85); put_str(&mut out, s); }
             Response::Denied => out.push(0x84),
             Response::HeartbeatAck => out.push(0x86),
+            Response::AuditVerifyOk(s) => { out.push(0x87); put_str(&mut out, s); }
         }
         out
     }
@@ -120,6 +129,7 @@ impl Response {
             0x85 => Response::DecoyAlertsOk(get_str(buf, &mut off)?),
             0x84 => Response::Denied,
             0x86 => Response::HeartbeatAck,
+            0x87 => Response::AuditVerifyOk(get_str(buf, &mut off)?),
             _ => return Err(bad()),
         })
     }
@@ -138,6 +148,7 @@ mod tests {
             Request::SetDegraded { on: true, unlock: [2u8; 32] },
             Request::ListDecoyAlerts { unlock: [3u8; 32] },
             Request::Heartbeat { source: "sentinel".into() },
+            Request::VerifyAuditLog { unlock: [4u8; 32] },
         ];
         for req in cases {
             let encoded = req.encode();
@@ -155,6 +166,7 @@ mod tests {
             Response::DecoyAlertsOk("[]".into()),
             Response::Denied,
             Response::HeartbeatAck,
+            Response::AuditVerifyOk("SAGLAM: 3 kayitlik zincir bastan sona tutarli".into()),
         ];
         for resp in cases {
             let encoded = resp.encode();

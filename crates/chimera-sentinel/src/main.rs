@@ -16,7 +16,19 @@ use std::time::{Duration, Instant};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(4);
 const FAILURES_BEFORE_RESPAWN: u32 = 3;
-const RESPAWN_COOLDOWN: Duration = Duration::from_secs(15);
+const RESPAWN_COOLDOWN_BASE: Duration = Duration::from_secs(15);
+/// *** GERCEK BIR HATANIN DUZELTMESI ***: sabit 15sn'lik bir bekleme,
+/// core KALICI olarak baslatilamiyorsa (or. bozuk/uyumsuz bir guven
+/// deposu, disk dolu, ikili bozuk) sentinel'i SONSUZA KADAR ~15sn'de bir
+/// yeniden baslatma denemesine sokar. Canli testte bu GERCEKTEN yasandi:
+/// bir test sirasinda unutulan, guveni bozuk bir sentinel/core cifti
+/// ~50 dakika boyunca kesintisiz denemeye devam etti ve YUZLERCE zombie
+/// surec biriktirdi (bkz. `respawn_core`'daki reap duzeltmesi de). Tavan
+/// degerli bir ustel geri-cekilme (core'un KENDI sentinel-izleme
+/// dongusundeki -- `chimera-core::spawn_sentinel_watchdog` -- ayni
+/// desenle TUTARLI), boyle bir kalici-arizada deneme sikligini giderek
+/// azaltir; basarili bir heartbeat'te taban degere sifirlanir.
+const RESPAWN_COOLDOWN_MAX: Duration = Duration::from_secs(300);
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -104,8 +116,24 @@ fn cmd_watch(root: &Path, core_pubkey_hex: Option<String>, core_binary_hash: Opt
 
     let mut consecutive_failures: u32 = 0;
     let mut last_respawn: Option<Instant> = None;
+    let mut respawn_backoff = RESPAWN_COOLDOWN_BASE;
+    let stop_flag = root.join("runtime/stop.flag");
 
     loop {
+        // *** GERCEK BIR HATANIN DUZELTMESI ***: bu kontrol eklenmeden
+        // once, bir operator `chimera-core`'u BILINCLI olarak (SIGTERM/
+        // Ctrl-C ile) durdurdugunda, sentinel bunu "core coktu" sanip
+        // birkac saniye icinde GERI BASLATIYORDU — "temiz bir stop komutu
+        // HER ZAMAN saygi gorur" dokumantasyon vaadi GERCEKTE yalan
+        // cikiyordu. Simdi: stop.flag varsa sentinel core'u ASLA
+        // yeniden baslatmaz VE kendisi de temiz sekilde cikar (core
+        // tekrar `serve` ile baslatildiginda taze bir sentinel dogar).
+        if stop_flag.exists() {
+            eprintln!("temiz durdurma bayragi bulundu -- sentinel core'u yeniden baslatmadan cikiyor");
+            let _ = std::fs::remove_file(&pid_path);
+            return 0;
+        }
+
         // PID dosyasini periyodik olarak "dokun": non-Linux platformlarda
         // core'un canlilik sinyali icin kullandigi dosya-zamani sezgisi
         // bu sayede taze kalir (bkz. core'daki `sentinel_is_alive`).
@@ -114,17 +142,38 @@ fn cmd_watch(root: &Path, core_pubkey_hex: Option<String>, core_binary_hash: Opt
         match heartbeat_once(root, &identity, &trust, &attest) {
             Ok(()) => {
                 consecutive_failures = 0;
+                // Basarili bir heartbeat, core'un GERCEKTEN saglikli
+                // calistigini kanitlar -- bir sonraki (farkli, gelecekteki)
+                // ariza icin geri-cekilmeyi taban degere sifirlariz.
+                respawn_backoff = RESPAWN_COOLDOWN_BASE;
             }
             Err(e) => {
                 consecutive_failures += 1;
                 eprintln!("core'a heartbeat basarisiz ({consecutive_failures}/{FAILURES_BEFORE_RESPAWN}): {e}");
                 if consecutive_failures >= FAILURES_BEFORE_RESPAWN {
-                    let can_respawn = last_respawn.map(|t| t.elapsed() > RESPAWN_COOLDOWN).unwrap_or(true);
+                    // Coklu kontrol: heartbeat basarisiz oldu VE bu arada
+                    // bir stop.flag OLUSMUS olabilir (SIGTERM aninda tam
+                    // bu pencerede gelmis olabilir) -- yeniden baslatmadan
+                    // hemen once SON BIR KEZ daha kontrol edilir.
+                    if stop_flag.exists() {
+                        eprintln!("temiz durdurma bayragi bulundu -- yeniden baslatma IPTAL edildi");
+                        let _ = std::fs::remove_file(&pid_path);
+                        return 0;
+                    }
+                    let can_respawn = last_respawn.map(|t| t.elapsed() > respawn_backoff).unwrap_or(true);
                     if can_respawn {
-                        eprintln!("core yanit vermiyor -- YENIDEN BASLATILIYOR");
+                        eprintln!("core yanit vermiyor -- YENIDEN BASLATILIYOR (bir sonraki deneme icin bekleme: {respawn_backoff:?})");
                         respawn_core(root);
                         last_respawn = Some(Instant::now());
                         consecutive_failures = 0;
+                        // KALICI bir ariza (or. bozuk guven deposu) ayni
+                        // respawn'i sonsuza kadar tekrarlatirdi -- bkz.
+                        // RESPAWN_COOLDOWN_MAX'in ustundeki not. Ustel
+                        // geri-cekilme, boyle bir durumda CPU/PID tuketimini
+                        // sinirlar; core GERCEKTEN duzelirse bir sonraki
+                        // basarili heartbeat bunu hemen taban degere geri
+                        // sifirlar.
+                        respawn_backoff = (respawn_backoff * 2).min(RESPAWN_COOLDOWN_MAX);
                     }
                 }
             }
@@ -147,10 +196,26 @@ fn heartbeat_once(root: &Path, identity: &Identity, trust: &TrustStore, attestat
     }
 }
 
+/// *** GERCEK BIR HATANIN DUZELTMESI (canli testte YAKALANDI) ***: burada
+/// spawn edilen cocuk surec ASLA `wait()` ile toplanmiyordu (reap
+/// edilmiyordu). Isletim sistemi kurallari geregi, bir cocuk surec
+/// sonlaninca, ebeveyni onu `wait()` ile "toplayana" kadar PID tablosunda
+/// "defunct"/zombie olarak kalir. Core kalici olarak baslatilamiyorsa
+/// (bkz. RESPAWN_COOLDOWN_MAX yorumu) sentinel bu fonksiyonu tekrar tekrar
+/// cagirir ve HER cagri kalici bir zombie birakirdi -- canli bir testte bu
+/// GERCEKTEN yasandi ve kisa surede yuzlerce zombie surec birikti (PID
+/// tuketimi -- kendi kendine bir kaynak-tukenmesi DoS'u). Duzeltme: ana
+/// heartbeat dongusunu BLOKLAMADAN, ayri kisa-omurlu bir thread'de
+/// `child.wait()` cagirarak cocugu reap ediyoruz.
 fn respawn_core(root: &Path) {
     let exe = which_core();
     match std::process::Command::new(&exe).arg("serve").arg("--root").arg(root).spawn() {
-        Ok(_) => eprintln!("core yeniden baslatildi: {}", exe.display()),
+        Ok(mut child) => {
+            eprintln!("core yeniden baslatildi: {}", exe.display());
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
         Err(e) => eprintln!("core yeniden baslatilamadi: {e}"),
     }
 }

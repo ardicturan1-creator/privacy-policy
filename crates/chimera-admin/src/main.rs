@@ -18,6 +18,7 @@
 //!   chimera-admin logs       --root R --share HEX --share HEX
 //!   chimera-admin degrade    --root R --share HEX --share HEX <on|off>
 //!   chimera-admin decoys     --root R --share HEX --share HEX
+//!   chimera-admin verify-audit --root R --share HEX --share HEX
 
 use chimera_ipc::{Identity, Request, Response, TrustStore};
 use interprocess::local_socket::prelude::*;
@@ -54,9 +55,10 @@ fn main() {
             let on = args.iter().any(|a| a == "on");
             cmd_privileged(&root, &args, move |unlock| Request::SetDegraded { on, unlock }, "MOD DEGISTIRME")
         }
+        "verify-audit" => cmd_privileged(&root, &args, |unlock| Request::VerifyAuditLog { unlock }, "DENETIM ZINCIRI DOGRULAMA"),
         other => {
             eprintln!("bilinmeyen alt komut: {other}");
-            eprintln!("kullanim: chimera-admin <identity|trust-core|status|logs|decoys|degrade> --root DIR");
+            eprintln!("kullanim: chimera-admin <identity|trust-core|status|logs|decoys|degrade|verify-audit> --root DIR");
             2
         }
     };
@@ -176,6 +178,7 @@ fn cmd_privileged(root: &Path, args: &[String], make_req: impl FnOnce([u8; 32]) 
         Ok(Response::LogsOk(s)) => { println!("{s}"); 0 }
         Ok(Response::DecoyAlertsOk(s)) => { println!("{s}"); 0 }
         Ok(Response::StatusOk(s)) => { println!("{s}"); 0 }
+        Ok(Response::AuditVerifyOk(s)) => { let ok = s.starts_with("SAGLAM") || s.starts_with("BOS"); println!("{s}"); if ok { 0 } else { 1 } }
         Ok(other) => { eprintln!("beklenmeyen yanit: {other:?}"); 1 }
         Err(e) => { eprintln!("{e}"); 1 }
     }

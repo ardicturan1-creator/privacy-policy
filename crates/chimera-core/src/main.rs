@@ -4,6 +4,7 @@
 //!   chimera-core trust     --root R <fp-hex>  bir eşi (admin/sentinel) guven deposuna ekle
 //!   chimera-core provision --root R           master anahtar uret, Shamir(2,3) paylarini YAZDIR
 //!   chimera-core serve     --root R           IPC sunucusu + watchdog + decoy + tarpit
+//!   chimera-core verify-audit --root R        hash-zincirli denetim kaydinin butunlugunu YEREL olarak dogrula
 //!
 //! Bu sürecin GUI ile HİÇBİR doğrudan bağı yoktur: GUI (chimera-admin)
 //! kapansa, çökse, hatta hiç açılmasa bile bu süreç bağımsız çalışmaya
@@ -20,6 +21,7 @@
 //! yeniden başlatır — ve bunun tersi de geçerlidir. Bilinçli, temiz bir
 //! `stop` komutu (`runtime/stop.flag`) ise HER ZAMAN saygı görür.
 
+mod auditlog;
 mod decoy;
 mod tarpit;
 
@@ -32,7 +34,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -49,8 +51,8 @@ fn main() {
     {
         let log_path = root.join("logs/audit.jsonl");
         std::panic::set_hook(Box::new(move |info| {
-            let detail = info.to_string().replace('"', "'").replace('\n', " ");
-            append_line(&log_path, &format!("{{\"ts\":{},\"event\":\"panic\",\"detail\":\"{detail}\"}}", unix_now()));
+            let detail = info.to_string();
+            let _ = auditlog::append(&log_path, "panic", &detail);
             eprintln!("chimera-core: beklenmeyen bir ic hata olustu; ayrintilar denetim kaydinda.");
         }));
     }
@@ -61,9 +63,10 @@ fn main() {
         "attest" => cmd_attest(&root, flag(&args, "--pubkey"), flag(&args, "--binary-hash")),
         "provision" => cmd_provision(&root, flag(&args, "--password")),
         "serve" => cmd_serve(&root),
+        "verify-audit" => cmd_verify_audit(&root),
         other => {
             eprintln!("bilinmeyen alt komut: {other}");
-            eprintln!("kullanim: chimera-core <identity|trust|attest|provision|serve> --root DIR");
+            eprintln!("kullanim: chimera-core <identity|trust|attest|provision|serve|verify-audit> --root DIR");
             2
         }
     };
@@ -184,11 +187,40 @@ fn cmd_provision(root: &Path, password: Option<String>) -> i32 {
     0
 }
 
+/// Denetim kaydinin hash-zincirini YEREL olarak (calisan bir `serve`
+/// surecine veya Shamir paylarina gerek KALMADAN) dogrular. Bu, disk
+/// erisimi zaten olan bir olay-mudahale ekibinin/operatorun servis
+/// CALISMIYORKEN bile "bu makinede kurcalama izi var mi?" sorusunu
+/// yanitlayabilmesi icindir. Uzaktan/ayricalikli esdegeri icin bkz.
+/// `chimera-admin verify-audit` (Shamir(2,3) ile korunur, Sifir Guven).
+fn cmd_verify_audit(root: &Path) -> i32 {
+    let l = layout(root);
+    match auditlog::verify(&l.audit_log()) {
+        Ok(auditlog::VerifyResult::Empty) => { println!("BOS: henuz hicbir denetim kaydi yazilmamis."); 0 }
+        Ok(auditlog::VerifyResult::Ok(n)) => { println!("SAGLAM: {n} kayitlik zincir bastan sona tutarli."); 0 }
+        Ok(auditlog::VerifyResult::Broken { at_seq }) => {
+            println!("KURCALAMA TESPIT EDILDI: zincir {at_seq}. kayitta (0-tabanli) kopuyor.");
+            println!("Bu kayittan ONCEKI bir satir silinmis veya degistirilmis olabilir.");
+            1
+        }
+        Err(e) => { eprintln!("denetim kaydi okunamadi: {e}"); 1 }
+    }
+}
+
 fn cmd_serve(root: &Path) -> i32 {
     let l = layout(root);
     for dir in [l.root.join("state"), l.root.join("runtime"), l.root.join("logs"), l.decoys()] {
         let _ = std::fs::create_dir_all(dir);
     }
+
+    // `stop.flag` artik KALICI bir "sistem bilincli olarak durduruldu"
+    // isaretidir (bkz. asagidaki dongu ve `chimera-sentinel`'deki karsilik
+    // gelen kontrol) — YALNIZCA burada, bilincli bir `serve` baslangicinda
+    // temizlenir. Eger burada temizlenmeseydi VE core kendi tespit ettigi
+    // aninda silseydi, sentinel'in bir sonraki heartbeat kontrolu bayragi
+    // ARTIK GORMEZDI (yaris durumu) ve core'u YANLISLIKLA yeniden
+    // baslatirdi — bu GERCEKTEN yasandi ve burada duzeltildi.
+    let _ = std::fs::remove_file(l.stop_flag());
 
     let identity = match Identity::load_or_create(&l.identity_dir()) {
         Ok(i) => i,
@@ -255,6 +287,26 @@ fn cmd_serve(root: &Path) -> i32 {
         Ok(n) => n,
         Err(e) => { eprintln!("soket adi gecersiz: {e}"); return 1; }
     };
+    // --- Temiz durdurma (gercek duzeltme) ---
+    // ONCEKI DAVRANIS (hatali): `listener.incoming()` yeni bir baglanti
+    // gelene kadar BLOKLAR; stop.flag yalnizca bir baglanti kabul
+    // EDILDIKTEN SONRA kontrol ediliyordu. Yani hicbir istemci baglanmazsa
+    // temiz durdurma SONSUZA KADAR fark edilmezdi — dokumantasyonun
+    // vaat ettigi "HER ZAMAN saygi gorur" iddiasi GERCEKTE dogru
+    // degildi. Duzeltme: Ctrl-C/SIGTERM/CTRL_CLOSE_EVENT sinyalinde
+    // stop.flag'i yaz VE kendi soketimize sahte bir baglanti acarak
+    // bloklayan accept() cagrisini HEMEN uyandir.
+    let stop_flag_for_signal = l.stop_flag().clone();
+    let socket_name_for_signal = l.root.clone();
+    if let Err(e) = ctrlc::set_handler(move || {
+        let _ = std::fs::write(&stop_flag_for_signal, b"1");
+        if let Ok(wake_name) = chimera_ipc::socket_name(&socket_name_for_signal) {
+            let _ = interprocess::local_socket::Stream::connect(wake_name);
+        }
+    }) {
+        eprintln!("UYARI: sinyal isleyicisi kurulamadi ({e}); temiz durdurma yalnizca bir sonraki baglantida fark edilebilir");
+    }
+
     let listener_opts = ListenerOptions::new().name(name);
     #[cfg(windows)]
     let listener_opts = match windows_pipe_acl() {
@@ -273,8 +325,39 @@ fn cmd_serve(root: &Path) -> i32 {
     };
     println!("core hazir. soket adi kokten turetildi: {}", l.root.display());
 
+    // Baglanti/el-sikisma hiz sinirlamasi: ML-KEM/ML-DSA islemleri UCUZ
+    // DEGILDIR (yaklasik milisaniyeler mertebesinde CPU). Ayni makinedeki
+    // yetkisiz bir surec, gecerli bir kimlige sahip olmadan bile saniyede
+    // binlerce baglanti acip CPU'yu tuketebilir (yerel DoS). GCRA tabanli
+    // standart bir hiz sinirlayici (governor crate — ozel bir algoritma
+    // icat edilmedi) bunu engeller: surekli 20/sn, ani patlamada 40'a
+    // kadar izin verilir (mesru sentinel heartbeat'i 4 sn'de bir, admin
+    // komutlari seyrek — bu sinirlar meşru trafigi ASLA etkilemez).
+    let rate_limiter = std::sync::Arc::new(governor::RateLimiter::direct(
+        governor::Quota::per_second(std::num::NonZeroU32::new(20).unwrap())
+            .allow_burst(std::num::NonZeroU32::new(40).unwrap()),
+    ));
+
     for conn in listener.incoming() {
+        // Temiz durdurma sinyali burada, HERHANGI bir isleme baslamadan
+        // ONCE kontrol edilir — Ctrl-C/SIGTERM isleyicisinin actigi
+        // "uyandirma" baglantisi bir istek gibi islenmeye CALISILMAZ.
+        if l.stop_flag().exists() {
+            audit(&l, "core.stop", "temiz durdurma sinyali alindi");
+            // BILEREK SILINMIYOR: bayrak, sentinel bir sonraki heartbeat
+            // kontrolunde GORMESI icin diskte KALICI olarak birakilir.
+            // Yalnizca bir sonraki bilincli `chimera-core serve` baslangici
+            // temizler (yukaridaki cmd_serve).
+            break;
+        }
+
         let Ok(mut stream) = conn else { continue };
+
+        if rate_limiter.check().is_err() {
+            let _ = auditlog::append(&l.audit_log(), "rate_limited", "baglanti reddedildi");
+            continue; // el sikismaya bile girmeden dus -- CPU harcanmaz
+        }
+
         let identity_sk = identity.keypair.signing_key.clone();
         let identity_vk = identity.keypair.verifying_key.clone();
         let trust = Arc::clone(&trust);
@@ -289,7 +372,7 @@ fn cmd_serve(root: &Path) -> i32 {
             let id_kp = chimera_crypto::obsidian::DsaKeypair { signing_key: identity_sk, verifying_key: identity_vk };
             let session_key = match chimera_ipc::run_server_handshake(&mut stream, &id_kp, &trust_snapshot, &attestation) {
                 Ok(k) => k,
-                Err(e) => { append_line(&l_path, &format!("{{\"ts\":{},\"event\":\"handshake_rejected\",\"detail\":\"{e}\"}}", unix_now())); return; }
+                Err(e) => { let _ = auditlog::append(&l_path, "handshake_rejected", &e.to_string()); return; }
             };
             drop(trust_snapshot);
 
@@ -303,12 +386,6 @@ fn cmd_serve(root: &Path) -> i32 {
                 if channel.send(&resp.encode()).is_err() { break; }
             }
         });
-
-        if l.stop_flag().exists() {
-            audit(&l, "core.stop", "temiz durdurma bayragi bulundu");
-            let _ = std::fs::remove_file(l.stop_flag());
-            break;
-        }
     }
     0
 }
@@ -334,7 +411,7 @@ fn handle_request(
         }
         Request::GetLogs { unlock } => {
             if !unlocked(&unlock) {
-                append_line(audit_path, &format!("{{\"ts\":{},\"event\":\"privileged_denied\",\"detail\":\"GetLogs\"}}", unix_now()));
+                let _ = auditlog::append(audit_path, "privileged_denied", "GetLogs");
                 return Response::Denied;
             }
             let tail = std::fs::read_to_string(audit_path).unwrap_or_default();
@@ -343,24 +420,46 @@ fn handle_request(
         }
         Request::SetDegraded { on, unlock } => {
             if !unlocked(&unlock) {
-                append_line(audit_path, "{\"event\":\"privileged_denied\",\"detail\":\"SetDegraded\"}");
+                let _ = auditlog::append(audit_path, "privileged_denied", "SetDegraded");
                 return Response::Denied;
             }
             degraded.store(on, Ordering::Relaxed);
-            append_line(audit_path, &format!("{{\"ts\":{},\"event\":\"mode.set\",\"detail\":\"degraded={on}\"}}", unix_now()));
+            let _ = auditlog::append(audit_path, "mode.set", &format!("degraded={on}"));
             Response::StatusOk(format!("mode={}", if on { "DegradedSafe" } else { "Full" }))
         }
         Request::ListDecoyAlerts { unlock } => {
             if !unlocked(&unlock) {
+                let _ = auditlog::append(audit_path, "privileged_denied", "ListDecoyAlerts");
                 return Response::Denied;
             }
             let alerts = decoy_alerts.lock().unwrap();
             Response::DecoyAlertsOk(format!("[{}]", alerts.join(",")))
         }
         Request::Heartbeat { source } => {
-            append_line(audit_path, &format!("{{\"ts\":{},\"event\":\"heartbeat\",\"detail\":\"{source}\"}}", unix_now()));
+            let _ = auditlog::append(audit_path, "heartbeat", &source);
             Response::HeartbeatAck
         }
+        Request::VerifyAuditLog { unlock } => {
+            if !unlocked(&unlock) {
+                let _ = auditlog::append(audit_path, "privileged_denied", "VerifyAuditLog");
+                return Response::Denied;
+            }
+            Response::AuditVerifyOk(describe_verify(auditlog::verify(audit_path)))
+        }
+    }
+}
+
+/// `auditlog::VerifyResult`i, IPC uzerinden tasinacak insan-okunabilir bir
+/// dizeye cevirir (protokol, dahili enum turlerini DEGIL yalnizca String
+/// tasir -- bkz. `chimera_ipc::protocol::Response::AuditVerifyOk`).
+fn describe_verify(result: std::io::Result<auditlog::VerifyResult>) -> String {
+    match result {
+        Ok(auditlog::VerifyResult::Empty) => "BOS: henuz hicbir denetim kaydi yazilmamis".to_string(),
+        Ok(auditlog::VerifyResult::Ok(n)) => format!("SAGLAM: {n} kayitlik zincir bastan sona tutarli"),
+        Ok(auditlog::VerifyResult::Broken { at_seq }) => {
+            format!("KURCALAMA TESPIT EDILDI: zincir {at_seq}. kayitta (0-tabanli) kopuyor -- bu kayittan ONCEKI bir satir silinmis/degistirilmis olabilir")
+        }
+        Err(e) => format!("DOGRULAMA HATASI: denetim kaydi okunamadi ({e})"),
     }
 }
 
@@ -533,8 +632,7 @@ fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
 }
 
 fn audit(l: &Layout, event: &str, detail: &str) {
-    let _ = std::fs::create_dir_all(l.root.join("logs"));
-    append_line(&l.audit_log(), &format!("{{\"ts\":{},\"event\":\"{}\",\"detail\":\"{}\"}}", unix_now(), event, detail.replace('"', "'")));
+    let _ = auditlog::append(&l.audit_log(), event, detail);
 }
 
 fn append_line(path: &Path, line: &str) {
@@ -542,10 +640,6 @@ fn append_line(path: &Path, line: &str) {
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(f, "{line}");
     }
-}
-
-fn unix_now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
 fn hex(bytes: &[u8]) -> String {
