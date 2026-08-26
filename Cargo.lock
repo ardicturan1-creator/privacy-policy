@@ -201,6 +201,7 @@ dependencies = [
  "getrandom 0.4.3",
  "governor",
  "interprocess",
+ "ml-dsa",
  "notify",
  "widestring",
  "windows",

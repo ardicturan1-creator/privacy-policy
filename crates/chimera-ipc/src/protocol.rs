@@ -51,6 +51,15 @@ pub enum Request {
     /// **Geri alinamaz** — bu yuzden `pipeline.rs` whitelist'ine ASLA
     /// girmez ve yalnizca bu ayricalikli istek uzerinden calisir.
     TerminateProcess { unlock: [u8; 32], pid: u32 },
+    /// ELLE, imzali bir yedek anlik goruntusu alir (bkz.
+    /// `chimera-core::backup`). Ayricalikli: yedek almak, kimlik/kasa
+    /// dosyalarinin kopyalanmasi demektir.
+    BackupNow { unlock: [u8; 32] },
+    /// Diskteki anlik goruntuleri listeler. Ayricalikli.
+    ListBackups { unlock: [u8; 32] },
+    /// EN YENI anlik goruntuyu imza + Merkle koku ile dogrular.
+    /// Ayricalikli.
+    VerifyBackup { unlock: [u8; 32] },
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +75,9 @@ pub enum Response {
     BlockIpOk(String),
     /// Devre kesici komutlarinin (list/resume/terminate) ortak yaniti.
     CircuitBreakerOk(String),
+    /// Yedekleme komutlarinin (backup-now/list-backups/verify-backup)
+    /// ortak yaniti.
+    BackupOk(String),
 }
 
 fn put_str(out: &mut Vec<u8>, s: &str) {
@@ -118,6 +130,9 @@ impl Request {
             Request::ListSuspended { unlock } => { out.push(0x0C); out.extend_from_slice(unlock); }
             Request::ResumeProcess { unlock, pid } => { out.push(0x0D); out.extend_from_slice(unlock); out.extend_from_slice(&pid.to_le_bytes()); }
             Request::TerminateProcess { unlock, pid } => { out.push(0x0E); out.extend_from_slice(unlock); out.extend_from_slice(&pid.to_le_bytes()); }
+            Request::BackupNow { unlock } => { out.push(0x0F); out.extend_from_slice(unlock); }
+            Request::ListBackups { unlock } => { out.push(0x10); out.extend_from_slice(unlock); }
+            Request::VerifyBackup { unlock } => { out.push(0x11); out.extend_from_slice(unlock); }
         }
         out
     }
@@ -156,6 +171,9 @@ impl Request {
                 let unlock = get_32(buf, &mut off)?;
                 Request::TerminateProcess { unlock, pid: get_u32(buf, &mut off)? }
             }
+            0x0F => Request::BackupNow { unlock: get_32(buf, &mut off)? },
+            0x10 => Request::ListBackups { unlock: get_32(buf, &mut off)? },
+            0x11 => Request::VerifyBackup { unlock: get_32(buf, &mut off)? },
             _ => return Err(bad()),
         })
     }
@@ -175,6 +193,7 @@ impl Response {
             Response::ScanReportOk(s) => { out.push(0x88); put_str(&mut out, s); }
             Response::BlockIpOk(s) => { out.push(0x89); put_str(&mut out, s); }
             Response::CircuitBreakerOk(s) => { out.push(0x8A); put_str(&mut out, s); }
+            Response::BackupOk(s) => { out.push(0x8B); put_str(&mut out, s); }
         }
         out
     }
@@ -193,6 +212,7 @@ impl Response {
             0x88 => Response::ScanReportOk(get_str(buf, &mut off)?),
             0x89 => Response::BlockIpOk(get_str(buf, &mut off)?),
             0x8A => Response::CircuitBreakerOk(get_str(buf, &mut off)?),
+            0x8B => Response::BackupOk(get_str(buf, &mut off)?),
             _ => return Err(bad()),
         })
     }
@@ -219,6 +239,9 @@ mod tests {
             Request::ListSuspended { unlock: [9u8; 32] },
             Request::ResumeProcess { unlock: [10u8; 32], pid: 4242 },
             Request::TerminateProcess { unlock: [11u8; 32], pid: 0xDEAD_BEEF },
+            Request::BackupNow { unlock: [12u8; 32] },
+            Request::ListBackups { unlock: [13u8; 32] },
+            Request::VerifyBackup { unlock: [14u8; 32] },
         ];
         for req in cases {
             let encoded = req.encode();
@@ -240,6 +263,7 @@ mod tests {
             Response::ScanReportOk("[]".into()),
             Response::BlockIpOk("bloklandi: 203.0.113.7".into()),
             Response::CircuitBreakerOk("INSAN ONAYI BEKLEYEN 1 SUREC".into()),
+            Response::BackupOk("SAGLAM: imza gecerli, 3 dosya".into()),
         ];
         for resp in cases {
             let encoded = resp.encode();

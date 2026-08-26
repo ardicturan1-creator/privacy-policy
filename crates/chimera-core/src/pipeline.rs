@@ -81,6 +81,14 @@ pub fn run_once(root: &std::path::Path, dry_run: bool, audit: &impl Fn(&str, &st
     let mut actions_taken = Vec::new();
     let mut needs_review = Vec::new();
 
+    // Faz 3: kurtarma yollarini imha eden komutlar (vssadmin delete
+    // shadows vb.) EN YUKSEK onceliklidir ve normal bulgu akisindan ONCE
+    // islenir. Alinan aksiyon devre kesicidir: surec ASKIYA ALINIR
+    // (geri alinabilir), SONLANDIRILMAZ.
+    if !dry_run {
+        actions_taken.extend(guard_recovery_paths(root, audit));
+    }
+
     for f in &findings {
         audit("scan.finding", &format!("{}[{}]: {}", f.id, f.severity.as_str(), f.title));
         match &f.remediation {
@@ -116,6 +124,74 @@ pub fn run_once(root: &std::path::Path, dry_run: bool, audit: &impl Fn(&str, &st
     PipelineReport { findings, actions_taken, needs_review }
 }
 
+/// `cmdguard.rs`'in yakaladigi her yikici komut icin devre kesiciyi
+/// tetikler. Donen liste, rapora "uygulanan aksiyon" olarak girer.
+///
+/// Bu OTOMATIK calisir ve whitelist'e tabi DEGILDIR -- cunku uyguladigi
+/// aksiyon askiya almadir: geri alinabilir, veri kaybi yok, dar. Ayni
+/// gerekce `circuit_breaker.rs`'in tuzak/entropi yollarinda da gecerli.
+/// KALICI sonlandirma yine yalnizca Shamir(2,3) ile mumkundur.
+fn guard_recovery_paths(root: &std::path::Path, audit: &impl Fn(&str, &str)) -> Vec<String> {
+    let mut out = Vec::new();
+    let found = match crate::cmdguard::recent_destructive_commands(crate::bruteforce::DEFAULT_WINDOW_SECS) {
+        Ok(v) => v,
+        Err(e) => {
+            // Okunamiyorsa bunu "temiz" saymayiz; scanner.rs bunu ayri bir
+            // KORLUK bulgusu olarak zaten raporlar.
+            audit("cmdguard.unavailable", &e);
+            return out;
+        }
+    };
+    for d in found {
+        audit("cmdguard.destructive_command", &d.as_detail());
+        let outcome = crate::circuit_breaker::trip(
+            root,
+            d.pid,
+            &crate::circuit_breaker::TripReason::MassEncryption { detail: d.as_detail() },
+            audit,
+        );
+        if outcome.skipped_protected {
+            out.push(format!("YIKICI KOMUT ({}) korumali bir surecten geldi, aksiyon alinmadi: {}", d.intent.as_str(), d.command_line));
+        } else {
+            out.push(format!("YIKICI KOMUT ENGELLENDI: pid={} askiya alindi -- {}", d.pid, d.intent.human()));
+        }
+    }
+    out
+}
+
+/// Periyodik imzali yedek akisi: gerekiyorsa yeni bir anlik goruntu alir,
+/// EN YENISINI dogrular ve eskileri budar.
+fn backup_cycle(
+    root: &std::path::Path,
+    signing_key: &ml_dsa::SigningKey<ml_dsa::MlDsa87>,
+    verifying_key: &ml_dsa::VerifyingKey<ml_dsa::MlDsa87>,
+    now: u64,
+    audit: &impl Fn(&str, &str),
+) {
+    let due = match crate::backup::age_of_newest(root, now) {
+        None => true, // hic yedek yok
+        Some(age) => age >= crate::backup::DEFAULT_INTERVAL_SECS,
+    };
+    if due {
+        match crate::backup::snapshot(root, signing_key, now, audit) {
+            Ok(msg) => audit("backup.cycle_ok", &msg.replace('\n', " | ")),
+            Err(e) => audit("backup.cycle_failed", &e),
+        }
+        crate::backup::prune(root, crate::backup::DEFAULT_KEEP, audit);
+    }
+
+    // Yedek almak yetmez: EN YENI yedegin hala saglam oldugu her turda
+    // DOGRULANIR. "Yedegim var" ile "yedegim calisiyor" ayni sey degildir.
+    if let Some((ts, dir)) = crate::backup::list_snapshots(root).last() {
+        let outcome = crate::backup::verify_snapshot(dir, verifying_key);
+        if outcome.is_intact() {
+            audit("backup.verify_ok", &format!("snapshot-{ts}: {}", outcome.to_text()));
+        } else {
+            audit("backup.verify_FAILED", &format!("snapshot-{ts}: {}", outcome.to_text()));
+        }
+    }
+}
+
 fn execute(root: &std::path::Path, r: &Remediation) -> Result<String, String> {
     match r {
         Remediation::EnableFirewall => crate::remediate::enable_firewall(),
@@ -140,7 +216,12 @@ fn execute(root: &std::path::Path, r: &Remediation) -> Result<String, String> {
 /// çalıştıran döngü. `chimera-sentinel`in `respawn_core` deseniyle TUTARLI
 /// şekilde: `running` false olduğunda döngü temiz şekilde biter (thread
 /// sonsuza dek asılı kalmaz).
-pub fn spawn_background_loop(running: Arc<AtomicBool>, root: std::path::PathBuf) {
+pub fn spawn_background_loop(
+    running: Arc<AtomicBool>,
+    root: std::path::PathBuf,
+    signing_key: ml_dsa::SigningKey<ml_dsa::MlDsa87>,
+    verifying_key: ml_dsa::VerifyingKey<ml_dsa::MlDsa87>,
+) {
     std::thread::spawn(move || {
         let audit_log = root.join("logs/audit.jsonl");
         let audit = |event: &str, detail: &str| {
@@ -156,6 +237,9 @@ pub fn spawn_background_loop(running: Arc<AtomicBool>, root: std::path::PathBuf)
             if !expired.is_empty() {
                 audit("autoblock.cycle_expired", &format!("{} gecici engel suresi doldu ve kaldirildi", expired.len()));
             }
+
+            // Faz 3: periyodik imzali yedek + dogrulama.
+            backup_cycle(&root, &signing_key, &verifying_key, now, &audit);
 
             let report = run_once(&root, false, &audit);
             audit(
@@ -194,6 +278,74 @@ mod tests {
         let err = execute(&root, &Remediation::TerminateSuspendedProcess).unwrap_err();
         assert!(err.contains("REDDEDILDI"));
         assert!(err.contains("Shamir"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Yedek dongusu: hic yedek yokken ILK anlik goruntuyu almali ve
+    /// hemen ardindan DOGRULAMALI. Bu, Faz 3'un uctan uca akisidir ve
+    /// Linux'ta tamamen calisir (kripto ve dosya sistemi platformdan
+    /// bagimsizdir).
+    #[test]
+    fn the_backup_cycle_creates_and_then_verifies_a_snapshot() {
+        let root = std::env::temp_dir().join(format!("chimera-pipe-bk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("state")).unwrap();
+        std::fs::write(root.join("state/vault.sealed"), vec![7u8; 4096]).unwrap();
+
+        let kp = chimera_crypto::obsidian::dsa_generate_keypair();
+        let events = std::sync::Mutex::new(Vec::new());
+        let audit = |e: &str, d: &str| events.lock().unwrap().push(format!("{e}|{d}"));
+
+        backup_cycle(&root, &kp.signing_key, &kp.verifying_key, 1000, &audit);
+
+        let ev = events.lock().unwrap().clone();
+        assert!(ev.iter().any(|e| e.starts_with("backup.cycle_ok")), "ilk turda yedek ALINMALI: {ev:?}");
+        assert!(ev.iter().any(|e| e.starts_with("backup.verify_ok")), "alinan yedek DOGRULANMALI: {ev:?}");
+        assert!(!ev.iter().any(|e| e.starts_with("backup.verify_FAILED")));
+        assert_eq!(crate::backup::list_snapshots(&root).len(), 1);
+
+        // Ikinci tur, araliktan once: YENI yedek ALINMAMALI ama mevcut
+        // yedek yine DOGRULANMALI.
+        events.lock().unwrap().clear();
+        backup_cycle(&root, &kp.signing_key, &kp.verifying_key, 1001, &audit);
+        let ev = events.lock().unwrap().clone();
+        assert!(!ev.iter().any(|e| e.starts_with("backup.cycle_ok")), "aralik dolmadan yeni yedek ALINMAMALI");
+        assert!(ev.iter().any(|e| e.starts_with("backup.verify_ok")));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Yedek BOZULMUSSA dongu bunu sessizce gecmemeli.
+    #[test]
+    fn the_backup_cycle_loudly_reports_a_corrupted_snapshot() {
+        let root = std::env::temp_dir().join(format!("chimera-pipe-bkbad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("state")).unwrap();
+        std::fs::write(root.join("state/vault.sealed"), vec![7u8; 4096]).unwrap();
+
+        let kp = chimera_crypto::obsidian::dsa_generate_keypair();
+        let noaudit = |_: &str, _: &str| {};
+        backup_cycle(&root, &kp.signing_key, &kp.verifying_key, 1000, &noaudit);
+
+        // Yedekteki dosyayi boz.
+        let dir = crate::backup::list_snapshots(&root)[0].1.clone();
+        let victim = dir.join("veri/state/vault.sealed");
+        let mut perms = std::fs::metadata(&victim).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        let _ = std::fs::set_permissions(&victim, perms);
+        std::fs::write(&victim, vec![9u8; 4096]).unwrap();
+
+        let events = std::sync::Mutex::new(Vec::new());
+        let audit = |e: &str, d: &str| events.lock().unwrap().push(format!("{e}|{d}"));
+        backup_cycle(&root, &kp.signing_key, &kp.verifying_key, 1001, &audit);
+
+        let ev = events.lock().unwrap().clone();
+        assert!(
+            ev.iter().any(|e| e.starts_with("backup.verify_FAILED")),
+            "BOZUK yedek sessizce gecilmis: {ev:?}"
+        );
+
         let _ = std::fs::remove_dir_all(&root);
     }
 

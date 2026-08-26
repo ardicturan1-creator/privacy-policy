@@ -90,7 +90,58 @@ pub fn scan(root: &std::path::Path) -> Vec<Finding> {
     check_pending_circuit_breaker_trips(root, &mut out);
     check_bruteforce(&mut out);
     check_active_autoblocks(root, &mut out);
+    check_backup_health(root, &mut out);
+    check_cmdguard_availability(&mut out);
     out
+}
+
+/// Yedeklerin durumunu raporlar. "Yedegim var" sanip aslinda hic yedek
+/// olmamasi, fidye yazilimi olayinda en pahali surprizdir; bu yuzden
+/// yoklugu KRITIK, bayatligi YUKSEK olarak raporlanir.
+fn check_backup_health(root: &std::path::Path, out: &mut Vec<Finding>) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    match crate::backup::age_of_newest(root, now) {
+        None => out.push(Finding {
+            id: "backup.none".into(),
+            severity: Severity::Critical,
+            title: "HIC imzali yedek anlik goruntusu yok".into(),
+            detail: format!(
+                "Kurtarma dayanikliligi YOK: bir fidye yazilimi olayinda geri donulecek dogrulanmis bir nokta bulunmuyor.                  Beklenen dizin: {}. Elle almak icin: chimera-admin backup-now (Shamir 2/3).",
+                crate::backup::backup_root(root).display()
+            ),
+            remediation: None,
+        }),
+        // Iki periyot gectiyse "bayat" sayilir: bir periyot kacirma
+        // normal bir zamanlama kaymasi olabilir, iki periyot degildir.
+        Some(age) if age > crate::backup::DEFAULT_INTERVAL_SECS * 2 => out.push(Finding {
+            id: "backup.stale".into(),
+            severity: Severity::High,
+            title: format!("En yeni yedek {} saat once alinmis (BAYAT)", age / 3600),
+            detail: format!(
+                "Beklenen aralik {} saat. Arka plan yedek dongusu calismiyor olabilir.\n{}",
+                crate::backup::DEFAULT_INTERVAL_SECS / 3600,
+                crate::backup::list_text(root, now)
+            ),
+            remediation: None,
+        }),
+        Some(_) => {}
+    }
+}
+
+/// Yikici komut izlemesi (4688) calismiyor olabilir; bu KORLUKTUR ve
+/// `bruteforce.unavailable` ile ayni gerekceyle raporlanir.
+fn check_cmdguard_availability(out: &mut Vec<Finding>) {
+    if let Err(e) = crate::cmdguard::recent_destructive_commands(60) {
+        out.push(Finding {
+            id: "cmdguard.unavailable".into(),
+            severity: Severity::Medium,
+            title: "Surec olusturma (4688) kayitlari okunamadi".into(),
+            detail: format!(
+                "{e} -- 'vssadmin delete shadows' gibi yedek imha komutlari su anda GORULEMIYOR.                  Bu, 'boyle bir komut calismadi' anlamina GELMEZ."
+            ),
+            remediation: None,
+        });
+    }
 }
 
 /// RDP/SMB parola deneme saldirilarini 4625 olay kayitlarindan tespit
@@ -445,6 +496,41 @@ mod tests {
         assert_eq!(out[0].severity, Severity::Medium);
         assert!(out[0].detail.contains("KORDUR"), "korluk ACIKCA soylenmeli: {}", out[0].detail);
         assert!(out[0].remediation.is_none(), "okunamayan gunluk icin otomatik aksiyon ONERILMEMELI");
+    }
+
+    /// Hic yedek yoksa bu KRITIK bir bulgu olmali -- sessizce
+    /// gecistirilirse operator kendini yedekli sanir.
+    #[test]
+    fn a_missing_backup_is_reported_as_critical() {
+        let root = std::env::temp_dir().join(format!("chimera-scan-bk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("state")).unwrap();
+
+        let mut out = Vec::new();
+        check_backup_health(&root, &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "backup.none");
+        assert_eq!(out[0].severity, Severity::Critical);
+
+        // Taze bir yedek varken bulgu URETILMEMELI.
+        let kp = chimera_crypto::obsidian::dsa_generate_keypair();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        crate::backup::snapshot(&root, &kp.signing_key, now, &|_: &str, _: &str| {}).unwrap();
+        let mut out = Vec::new();
+        check_backup_health(&root, &mut out);
+        assert!(out.is_empty(), "taze yedek varken bulgu uretilmemeli: {out:?}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn an_unavailable_process_creation_log_is_reported_as_blindness() {
+        let mut out = Vec::new();
+        check_cmdguard_availability(&mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "cmdguard.unavailable");
+        assert!(out[0].detail.contains("GELMEZ"), "korluk acikca soylenmeli");
     }
 
     #[test]

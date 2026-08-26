@@ -26,6 +26,9 @@
 //!   chimera-admin list-suspended    --root R --share HEX --share HEX
 //!   chimera-admin resume-process    --root R --share HEX --share HEX --pid N
 //!   chimera-admin terminate-process --root R --share HEX --share HEX --pid N
+//!   chimera-admin backup-now     --root R --share HEX --share HEX
+//!   chimera-admin list-backups   --root R --share HEX --share HEX
+//!   chimera-admin verify-backup  --root R --share HEX --share HEX
 
 use chimera_ipc::{Identity, Request, Response, TrustStore};
 use interprocess::local_socket::prelude::*;
@@ -79,6 +82,9 @@ fn main() {
             cmd_privileged(&root, &args, move |unlock| Request::UnblockIp { unlock, ip }, "IP ENGELINI KALDIRMA")
         }
         "list-blocked" => cmd_privileged(&root, &args, |unlock| Request::ListBlockedIps { unlock }, "ENGELLI IP LISTESI"),
+        "backup-now" => cmd_privileged(&root, &args, |unlock| Request::BackupNow { unlock }, "IMZALI YEDEK ALMA"),
+        "list-backups" => cmd_privileged(&root, &args, |unlock| Request::ListBackups { unlock }, "YEDEK LISTESI"),
+        "verify-backup" => cmd_privileged(&root, &args, |unlock| Request::VerifyBackup { unlock }, "YEDEK DOGRULAMA"),
         "list-suspended" => cmd_privileged(&root, &args, |unlock| Request::ListSuspended { unlock }, "ASKIYA ALINMIS SURECLER"),
         "resume-process" => {
             let Some(pid) = pid_flag(&args) else {
@@ -104,7 +110,8 @@ fn main() {
         other => {
             eprintln!("bilinmeyen alt komut: {other}");
             eprintln!("kullanim: chimera-admin <identity|trust-core|status|logs|decoys|degrade|verify-audit|scan|");
-            eprintln!("                          block-ip|unblock-ip|list-blocked|list-suspended|resume-process|terminate-process> --root DIR");
+            eprintln!("                          block-ip|unblock-ip|list-blocked|list-suspended|resume-process|terminate-process|");
+            eprintln!("                          backup-now|list-backups|verify-backup> --root DIR");
             2
         }
     };
@@ -228,6 +235,13 @@ fn cmd_privileged(root: &Path, args: &[String], make_req: impl FnOnce([u8; 32]) 
         Ok(Response::ScanReportOk(s)) => { println!("{s}"); 0 }
         Ok(Response::BlockIpOk(s)) => { let ok = !s.starts_with("HATA"); println!("{s}"); if ok { 0 } else { 1 } }
         Ok(Response::CircuitBreakerOk(s)) => { let ok = !s.starts_with("HATA"); println!("{s}"); if ok { 0 } else { 1 } }
+        // Yedek dogrulama, BOZULMA bulursa sifir-olmayan kodla cikar --
+        // boylece bir CI/zamanlanmis gorev bunu otomatik yakalayabilir.
+        Ok(Response::BackupOk(s)) => {
+            let bad = s.starts_with("HATA") || s.contains("GECERSIZ") || s.contains("BOZULMA") || s.contains("DOGRULANAMADI");
+            println!("{s}");
+            if bad { 1 } else { 0 }
+        }
         Ok(other) => { eprintln!("beklenmeyen yanit: {other:?}"); 1 }
         Err(e) => { eprintln!("{e}"); 1 }
     }

@@ -23,8 +23,10 @@
 
 mod auditlog;
 mod autoblock;
+mod backup;
 mod bruteforce;
 mod circuit_breaker;
+mod cmdguard;
 mod decoy;
 mod firewall;
 mod heuristic;
@@ -426,7 +428,12 @@ fn cmd_serve(root: &Path) -> i32 {
     // biterken (temiz durdurma) false'a cekilir, boylece bu thread de
     // sonsuza kadar arka planda takili kalmaz.
     let pipeline_running = Arc::new(AtomicBool::new(true));
-    pipeline::spawn_background_loop(Arc::clone(&pipeline_running), l.root.clone());
+    pipeline::spawn_background_loop(
+        Arc::clone(&pipeline_running),
+        l.root.clone(),
+        identity.keypair.signing_key.clone(),
+        identity.keypair.verifying_key.clone(),
+    );
 
     // --- IPC sunucusu ---
     let trust = Arc::new(Mutex::new(TrustStore::load(&l.trust_list()).expect("guven deposu")));
@@ -533,7 +540,10 @@ fn cmd_serve(root: &Path) -> i32 {
                     Ok(raw) => match Request::decode(&raw) { Ok(r) => r, Err(_) => break },
                     Err(_) => break, // baglanti kapandi
                 };
-                let resp = handle_request(req, &master_key, &decoy_alerts, &heuristic_state, &degraded, &l_path, &root_path);
+                let resp = handle_request(
+                    req, &master_key, &decoy_alerts, &heuristic_state, &degraded,
+                    &id_kp.signing_key, &id_kp.verifying_key, &l_path, &root_path,
+                );
                 if channel.send(&resp.encode()).is_err() { break; }
             }
         });
@@ -547,6 +557,8 @@ fn handle_request(
     decoy_alerts: &Arc<Mutex<Vec<String>>>,
     heuristic_state: &Arc<Mutex<heuristic::RansomHeuristic>>,
     degraded: &Arc<AtomicBool>,
+    signing_key: &ml_dsa::SigningKey<ml_dsa::MlDsa87>,
+    verifying_key: &ml_dsa::VerifyingKey<ml_dsa::MlDsa87>,
     audit_path: &Path,
     root: &Path,
 ) -> Response {
@@ -637,6 +649,45 @@ fn handle_request(
             match firewall::list_blocked_ips(root) {
                 Ok(ips) => Response::BlockIpOk(format!("[{}]", ips.join(","))),
                 Err(e) => Response::BlockIpOk(format!("HATA: {e}")),
+            }
+        }
+        Request::BackupNow { unlock } => {
+            if !unlocked(&unlock) {
+                let _ = auditlog::append(audit_path, "privileged_denied", "BackupNow");
+                return Response::Denied;
+            }
+            let audit_owned = audit_path.to_path_buf();
+            let audit = move |e: &str, d: &str| { let _ = auditlog::append(&audit_owned, e, d); };
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            match backup::snapshot(root, signing_key, now, &audit) {
+                Ok(msg) => Response::BackupOk(msg),
+                Err(e) => Response::BackupOk(format!("HATA: {e}")),
+            }
+        }
+        Request::ListBackups { unlock } => {
+            if !unlocked(&unlock) {
+                let _ = auditlog::append(audit_path, "privileged_denied", "ListBackups");
+                return Response::Denied;
+            }
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            Response::BackupOk(backup::list_text(root, now))
+        }
+        Request::VerifyBackup { unlock } => {
+            if !unlocked(&unlock) {
+                let _ = auditlog::append(audit_path, "privileged_denied", "VerifyBackup");
+                return Response::Denied;
+            }
+            match backup::list_snapshots(root).last() {
+                None => Response::BackupOk("DOGRULANACAK YEDEK YOK.".to_string()),
+                Some((ts, dir)) => {
+                    let outcome = backup::verify_snapshot(dir, verifying_key);
+                    let _ = auditlog::append(
+                        audit_path,
+                        if outcome.is_intact() { "backup.verify_ok" } else { "backup.verify_FAILED" },
+                        &format!("snapshot-{ts}: {}", outcome.to_text()),
+                    );
+                    Response::BackupOk(format!("snapshot-{ts}: {}", outcome.to_text()))
+                }
             }
         }
         Request::ListSuspended { unlock } => {

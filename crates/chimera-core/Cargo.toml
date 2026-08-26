@@ -8,6 +8,7 @@ description = "CHIMERA Core Daemon — kimlik dogrulamali IPC sunucusu, karsilik
 chimera-crypto = { path = "../chimera-crypto" }
 chimera-ipc = { path = "../chimera-ipc" }
 blake3 = "1.8.7"
+ml-dsa = "0.1.1"
 interprocess = "2.4.3"
 notify = "8.2.0"
 getrandom = "0.4.3"
