@@ -42,8 +42,40 @@ jobs:
         with:
           cache-read-only: false
 
-      - name: Birim testleri
-        run: ./gradlew testDebugUnitTest --stacktrace
+      # --stacktrace KULLANILMIYOR: Gradle'in ic yigin dokumu yuzlerce satir
+      # uretir ve gercek derleyici hatalarini gomer. Bunun yerine cikti
+      # yakalanip yalnizca "e:" ile baslayan Kotlin hatalari ozetlenir.
+      - name: Derle ve test et
+        id: build
+        run: |
+          set -o pipefail
+          if ./gradlew testDebugUnitTest :app:assembleDebug --console=plain 2>&1 | tee build.log; then
+            echo "Derleme basarili."
+          else
+            status=$?
+            {
+              echo "## Derleme hatalari"
+              echo '```'
+              grep -E '^e: |^\s+> Task .* FAILED|^FAILURE:|^\* What went wrong:' build.log \
+                | head -120
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            echo "================ OZET: DERLEME HATALARI ================"
+            grep -E '^e: ' build.log | head -120 || true
+            echo "================ TEST BASARISIZLIKLARI ================"
+            grep -E 'FAILED|Test .* failed' build.log | head -40 || true
+            echo "======================================================="
+            exit $status
+          fi
+
+      - name: Derleme gunlugunu yukle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: UltraGuard/build.log
+          retention-days: 7
 
       - name: Test raporlarini yukle
         if: always()
@@ -56,15 +88,12 @@ jobs:
           retention-days: 14
 
       - name: Lint
-        run: ./gradlew :app:lintDebug --stacktrace
+        run: ./gradlew :app:lintDebug --console=plain
         continue-on-error: true
 
       # Tum ABI'leri iceren tek APK: ABI bolme YAPILMAZ.
       # SQLCipher ve TensorFlow Lite yerel kutuphane tasir; bolunmus bir APK
       # yanlis cihazda calismaz. Tek universal APK her cihaza kurulur.
-      - name: Debug APK derle (universal)
-        run: ./gradlew :app:assembleDebug --stacktrace
-
       - name: Imzalama anahtarini hazirla
         id: keystore
         env:
@@ -96,7 +125,7 @@ jobs:
 
           echo "::add-mask::$CERT_SHA"
 
-          ./gradlew :app:assembleRelease --stacktrace \
+          ./gradlew :app:assembleRelease --console=plain \
             -Pultraguard.signingCertSha256="$CERT_SHA" \
             -Pultraguard.storeFile="$RUNNER_TEMP/ultraguard.jks" \
             -Pultraguard.storePassword="$KEYSTORE_PASSWORD" \

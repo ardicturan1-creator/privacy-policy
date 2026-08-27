@@ -13,7 +13,10 @@ import com.ultraguard.core.engine.ThreatPipeline
 import com.ultraguard.core.model.ProtectionMode
 import com.ultraguard.core.sensors.AppOpsCollector
 import com.ultraguard.core.sensors.PackageEventCollector
+import com.ultraguard.core.sensors.ClipboardMonitor
 import com.ultraguard.core.sensors.SystemSettingsCollector
+import com.ultraguard.shield.response.ThreatResponder
+import com.ultraguard.shield.work.WorkScheduler
 import com.ultraguard.shield.MainActivity
 import com.ultraguard.shield.R
 import com.ultraguard.shield.UltraGuardApplication
@@ -40,6 +43,10 @@ class ProtectionService : LifecycleService() {
     @Inject lateinit var settingsCollector: SystemSettingsCollector
     @Inject lateinit var stateMachine: MonitoringStateMachine
     @Inject lateinit var settingsStore: SettingsStore
+    @Inject lateinit var threatResponder: ThreatResponder
+    @Inject lateinit var clipboardMonitor: ClipboardMonitor
+    @Inject lateinit var batteryModeMonitor: BatteryModeMonitor
+    @Inject lateinit var workScheduler: WorkScheduler
 
     override fun onCreate() {
         super.onCreate()
@@ -49,11 +56,19 @@ class ProtectionService : LifecycleService() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
 
+        // Sira onemlidir: once karar zinciri ve yanit halkasi ayaga kalkar,
+        // sonra sensorler olay uretmeye baslar. Tersi olursa acilistaki ilk
+        // olaylar dinleyicisiz kalir ve sessizce kaybolur.
         pipeline.start()
+        threatResponder.start()
+
         appOpsCollector.start()
         packageCollector.start()
         settingsCollector.start()
+        clipboardMonitor.start()
+        batteryModeMonitor.start()
 
+        workScheduler.scheduleAll()
         observeMode()
     }
 
@@ -79,6 +94,8 @@ class ProtectionService : LifecycleService() {
         appOpsCollector.stop()
         packageCollector.stop()
         settingsCollector.stop()
+        clipboardMonitor.stop()
+        batteryModeMonitor.stop()
         super.onDestroy()
     }
 
