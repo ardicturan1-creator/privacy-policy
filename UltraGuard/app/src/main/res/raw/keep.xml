@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Kaynak koruma listesi.
+
+  `ExplanationText`, kanıt açıklamalarını `getIdentifier()` ile ADA GÖRE
+  çözer. Kaynak küçültme (shrinkResources) statik referans bulamadığı için
+  bu string'leri "kullanılmıyor" sanıp siler ve release derlemesinde tüm
+  kanıt açıklamaları boş görünür — derlemede hata vermeyen, yalnızca
+  kullanıcıda ortaya çıkan bir bozulma.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@string/expl_*,@string/threat_*,@string/mode_*"
+    tools:shrinkMode="safe" />

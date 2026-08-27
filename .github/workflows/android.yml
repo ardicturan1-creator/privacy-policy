@@ -39,42 +39,40 @@ jobs:
 
       - name: Gradle kur
         uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: false
 
       # --stacktrace KULLANILMIYOR: Gradle'in ic yigin dokumu yuzlerce satir
-      # uretir ve gercek derleyici hatalarini gomer. Bunun yerine cikti
-      # yakalanip yalnizca "e:" ile baslayan Kotlin hatalari ozetlenir.
+      # uretir ve gercek derleyici hatalarini gomer. Cikti yakalanip yalnizca
+      # anlamli satirlar ayri bir dosyaya suzuluyor; o dosya isin EN SON
+      # adiminda basiliyor, boylece log kuyrugunda her zaman gorunur oluyor.
       - name: Derle ve test et
-        id: build
         run: |
           set -o pipefail
-          if ./gradlew testDebugUnitTest :app:assembleDebug --console=plain 2>&1 | tee build.log; then
-            echo "Derleme basarili."
-          else
-            status=$?
-            {
-              echo "## Derleme hatalari"
-              echo '```'
-              grep -E '^e: |^\s+> Task .* FAILED|^FAILURE:|^\* What went wrong:' build.log \
-                | head -120
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
+          ./gradlew testDebugUnitTest :app:assembleDebug --console=plain 2>&1 | tee build.log
 
-            echo "================ OZET: DERLEME HATALARI ================"
-            grep -E '^e: ' build.log | head -120 || true
-            echo "================ TEST BASARISIZLIKLARI ================"
-            grep -E 'FAILED|Test .* failed' build.log | head -40 || true
-            echo "======================================================="
-            exit $status
-          fi
+      - name: Hatalari suz
+        if: failure()
+        run: |
+          {
+            echo "=================== DERLEME HATALARI ==================="
+            grep -E '^e: ' build.log | head -100 || echo "(Kotlin derleyici hatasi yok)"
+            echo
+            echo "=================== BASARISIZ GOREVLER ================="
+            grep -E '^> Task .* FAILED|^FAILURE:|^\* What went wrong:' build.log | head -30 || true
+            echo
+            echo "=================== TEST BASARISIZLIKLARI =============="
+            grep -E 'Test.*FAILED|expected:|but was:' build.log | head -40 || true
+            echo "========================================================"
+          } > errors.txt
+          cat errors.txt >> "$GITHUB_STEP_SUMMARY"
 
       - name: Derleme gunlugunu yukle
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: UltraGuard/build.log
+          path: |
+            UltraGuard/build.log
+            UltraGuard/errors.txt
           retention-days: 7
 
       - name: Test raporlarini yukle
@@ -91,9 +89,6 @@ jobs:
         run: ./gradlew :app:lintDebug --console=plain
         continue-on-error: true
 
-      # Tum ABI'leri iceren tek APK: ABI bolme YAPILMAZ.
-      # SQLCipher ve TensorFlow Lite yerel kutuphane tasir; bolunmus bir APK
-      # yanlis cihazda calismaz. Tek universal APK her cihaza kurulur.
       - name: Imzalama anahtarini hazirla
         id: keystore
         env:
@@ -114,15 +109,11 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          # Kendini koruma icin beklenen imza ozeti, anahtarin kendisinden
-          # turetilir. Bu, release derlemesinin imza dogrulamasi olmadan
-          # cikmasini engelleyen kontrolu besler.
           CERT_SHA=$(keytool -list -v \
             -keystore "$RUNNER_TEMP/ultraguard.jks" \
             -alias "$KEY_ALIAS" \
             -storepass "$KEYSTORE_PASSWORD" \
             | grep -m1 'SHA256:' | awk '{print $2}' | tr -d ':' | tr 'A-Z' 'a-z')
-
           echo "::add-mask::$CERT_SHA"
 
           ./gradlew :app:assembleRelease --console=plain \
@@ -132,6 +123,9 @@ jobs:
             -Pultraguard.keyAlias="$KEY_ALIAS" \
             -Pultraguard.keyPassword="$KEY_PASSWORD"
 
+      # Tum ABI'leri iceren tek APK: ABI bolme YAPILMAZ. SQLCipher ve
+      # TensorFlow Lite yerel kutuphane tasir; bolunmus bir APK yanlis
+      # cihazda calismaz. Tek universal APK her cihaza kurulur.
       - name: APK'lari adlandir
         id: apks
         run: |
@@ -171,3 +165,9 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "UltraGuard OS Shield ${{ steps.apks.outputs.version }}" \
             --notes-file "$GITHUB_WORKSPACE/UltraGuard/RELEASE_NOTES.md"
+
+      # Isin EN SON adimi: hata ozeti burada basilir ki log kuyrugunda
+      # her zaman gorunur olsun.
+      - name: Hata ozeti
+        if: failure()
+        run: cat errors.txt || echo "(errors.txt uretilmedi)"
