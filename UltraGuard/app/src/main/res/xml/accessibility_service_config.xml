@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Erişilebilirlik servisi yapılandırması.
+
+  `android:canRetrieveWindowContent="false"` bu dosyadaki en önemli satırdır:
+  sistem düzeyinde, ekran içeriğini okuma yeteneğini KENDİMİZE KAPATIYORUZ.
+  Bu bir söz değil, platform tarafından uygulanan bir kısıttır — kod
+  değişse bile bu bayrak açılmadan ekran metni okunamaz.
+
+  İhtiyacımız olan tek şey pencere listesi: kim kimin üzerine çiziyor.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows|flagReportViewIds"
+    android:canRetrieveWindowContent="false"
+    android:canPerformGestures="false"
+    android:notificationTimeout="100"
+    android:description="@string/accessibility_service_description"
+    android:summary="@string/accessibility_service_summary" />

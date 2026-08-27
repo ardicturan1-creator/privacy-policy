@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Yedekleme politikası: HİÇBİR ŞEY yedeklenmez.
+
+  Güvenlik olay geçmişi, yanlış ellerde bir gözetim veritabanıdır. Bulut
+  yedeğine gitmesi, cihazdaki SQLCipher şifrelemesini anlamsız kılar.
+  Kullanıcı cihaz değiştirdiğinde UltraGuard sıfırdan öğrenmeye başlar —
+  bu bir maliyettir ve bilinçli olarak kabul edilmiştir.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+    </device-transfer>
+</data-extraction-rules>

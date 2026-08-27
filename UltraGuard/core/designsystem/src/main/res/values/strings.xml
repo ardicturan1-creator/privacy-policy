@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Kanit aciklamalari.
+      Anahtarlar `ExplanationKeys` ile birebir eslesir. Metinler kasitli
+      olarak teknik terim icermez: kullanici "AccessibilityService kaydi"
+      degil, "ekraninizi okuyabilecek bir servis" okur.
+    -->
+    <string name="expl_sideload">Play Store dışından, %1$s üzerinden kuruldu</string>
+    <string name="expl_installed">Cihaza kuruldu</string>
+    <string name="expl_dangerous_perm_set">Birlikte kullanıldığında tehlikeli olan bir izin grubunu istedi</string>
+    <string name="expl_packed_dex">Kodu şifrelenmiş veya paketlenmiş — içeriği kurulumdan önce görünmüyor</string>
+    <string name="expl_legacy_sdk">Eski Android sürümünü hedefliyor; güncel izin korumalarından muaf kalıyor</string>
+    <string name="expl_young_cert">İmza sertifikası birkaç gün önce üretilmiş</string>
+    <string name="expl_native_loader">Çalışma anında ek kod yükleyebilen yerel kütüphane içeriyor</string>
+    <string name="expl_a11y_enabled">Ekranınızı okuyabilen bir erişilebilirlik servisi çalıştırıyor</string>
+    <string name="expl_a11y_gesture">Sizin adınıza dokunma ve kaydırma yapabilme yetkisi aldı</string>
+    <string name="expl_a11y_window_query">%1$s uygulamasının penceresini sorguladı</string>
+    <string name="expl_overlay">Diğer uygulamaların üzerine pencere çizdi</string>
+    <string name="expl_overlay_protected">Bankacılık ekranınızın üzerine pencere çizdi</string>
+    <string name="expl_screen_capture">Ekran görüntüsü yakalamaya başladı</string>
+    <string name="expl_camera">Kameraya erişti</string>
+    <string name="expl_microphone">Mikrofona erişti</string>
+    <string name="expl_location">Konumunuza erişti</string>
+    <string name="expl_background_sensor">Ekran kapalıyken ve arka plandayken bir sensöre erişti</string>
+    <string name="expl_clipboard">Panonuzu okudu</string>
+    <string name="expl_clipboard_sensitive">Panonuzda hassas bir içerik tespit edildi</string>
+    <string name="expl_notification_phishing">Bildiriminde oltalama kalıbı tespit edildi</string>
+    <string name="expl_beacon">Düzenli aralıklarla bir sunucuya bağlanıyor</string>
+    <string name="expl_dga">Otomatik üretilmiş görünen bir alan adına bağlandı: %1$s</string>
+    <string name="expl_bad_reputation">Kötü üne sahip bir adrese bağlandı: %1$s</string>
+    <string name="expl_bulk_upload">Dışarı büyük miktarda veri gönderdi</string>
+    <string name="expl_tls">%1$s adresiyle şifreli bağlantı kurdu</string>
+    <string name="expl_connection">Ağ bağlantısı açtı</string>
+    <string name="expl_root_indicator">Cihazda root göstergesi bulundu: %1$s</string>
+    <string name="expl_hooking">Uygulamalara müdahale edebilen bir çerçeve tespit edildi</string>
+    <string name="expl_adb">USB hata ayıklama açık</string>
+    <string name="expl_wireless_debug">Kablosuz hata ayıklama açık — ağdaki biri cihaza bağlanabilir</string>
+    <string name="expl_memfd">Diske hiç yazmadan bellekte kod oluşturdu</string>
+    <string name="expl_exec">Yeni bir süreç çalıştırdı</string>
+    <string name="expl_ptrace">Başka bir sürece bağlanmayı denedi</string>
+    <string name="expl_binder">Sahip olmadığı bir yetkinin sistem servisini tekrar tekrar yokladı</string>
+    <string name="expl_model_attention">Davranış modeli bu adımı olağandışı buldu: %1$s</string>
+</resources>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UltraGuard</string>
+
+    <string name="accessibility_service_label">UltraGuard ekran koruması</string>
+    <string name="accessibility_service_summary">Ekran üstü saldırılarını tespit eder</string>
+    <string name="accessibility_service_description">Bankacılık trojanları bu izni ekranınızı okumak için kullanır. UltraGuard aynı izni, başka bir uygulamanın bunu yaptığını görmek için kullanır.\n\nBu izinle NE YAPMIYORUZ: ekran içeriğinizi okumuyoruz (bu yetenek yapılandırma dosyasında kapatılmıştır), hiçbir ekran verisi cihazınızdan çıkmıyor. Yalnızca hangi pencerenin hangi uygulamaya ait olduğunu görüyoruz.\n\nBu izin olmadan ekran üstü (overlay) saldırılarını tespit edemeyiz. Vermeden de devam edebilirsiniz; koruma sınırlı çalışır.</string>
+
+    <string name="notification_service_label">UltraGuard bildirim koruması</string>
+
+    <string name="protection_service_channel_name">Koruma durumu</string>
+    <string name="protection_service_channel_description">UltraGuard motorunun çalıştığını gösteren kalıcı bildirim</string>
+    <string name="threat_channel_name">Tehdit uyarıları</string>
+    <string name="threat_channel_description">Tespit edilen tehditler ve yapılan müdahaleler</string>
+
+    <string name="protection_active">Koruma etkin</string>
+    <string name="protection_active_detail">%1$s modu · %2$d uygulama izleniyor</string>
+</resources>

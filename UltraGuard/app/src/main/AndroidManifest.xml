@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      İZİN FELSEFESİ
+      ==============
+      UltraGuard, kötücül uygulamaların istediği izinlerin bir kısmını
+      kendisi de ister. Bu paradoks gizlenmez; onboarding'de her izin için
+      "neden bu izni istiyorum / bununla ne YAPMIYORUM" ekranı gösterilir
+      ve her biri atlanabilir. Zorunlu izin yoktur.
+
+      Buradaki hiçbir izin, listede olmayan bir yeteneği açmaz. İzin listesi
+      ürünün gerçek yüzeyidir; kısa tutmak bir tasarım hedefidir.
+    -->
+
+    <!-- Ön plan servisi: koruma motorunun yaşamını sürdürmesi için. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!--
+      Kurulu paketleri sorgulama. Bir antivirüs için zorunludur: göremediğimiz
+      uygulamayı değerlendiremeyiz. Play Store'a AV muafiyeti ile beyan edilir.
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <!-- Uygulama başına sensör kullanım geçmişi (AppOps). -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.GET_APP_OPS_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Ağ durumu ve paket→UID eşlemesi. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Kullanıcının kaldırma akışını başlatabilmesi için. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
+    <!--
+      Korunan ekranlarda üçüncü taraf overlay'lerini gizlemek için
+      (Finansal Kalkan). Android 12+.
+    -->
+    <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
+
+    <!-- Kasa için biyometrik kilit. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!--
+      BİLİNÇLİ OLARAK İSTEMEDİĞİMİZ İZİNLER
+      ======================================
+      CAMERA / RECORD_AUDIO — kayıp cihazda gizli kayıt sunmuyoruz; bu
+        özellik pratikte partner takibinde kullanılıyor ve stalkerware'e
+        karşı savaşan bir ürün stalkerware yeteneği taşıyamaz.
+      READ_SMS — SMS içeriğini okumuyoruz; OTP sızdırma tespiti bildirim
+        katmanındaki desen eşlemesiyle, içeriği saklamadan yapılıyor.
+      ACCESS_FINE_LOCATION — konumunuzu bilmemize gerek yok.
+      READ_CONTACTS / READ_CALL_LOG — hiçbir tespit yeteneği bunlara
+        dayanmıyor.
+    -->
+
+    <queries>
+        <intent>
+            <action android:name="android.accessibilityservice.AccessibilityService" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".UltraGuardApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.UltraGuard"
+        android:enableOnBackInvokedCallback="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Koruma motorunun ana taşıyıcısı.
+          `specialUse` tipi, Android 14+ üzerinde güvenlik izleme gibi
+          mevcut kategorilere girmeyen sürekli servisler için doğru
+          sınıflandırmadır ve Play Store'a gerekçesiyle beyan edilir.
+        -->
+        <service
+            android:name=".service.ProtectionService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Sürekli davranışsal güvenlik izleme ve otonom müdahale" />
+        </service>
+
+        <!--
+          Erişilebilirlik servisi.
+          Bu servis ekran METNİNİ OKUMAZ. `canRetrieveWindowContent`
+          bilinçli olarak `false`: yalnızca pencere sahipleri ve türleri
+          gerekiyor. Bkz. UltraGuardAccessibilityService dokümantasyonu.
+        -->
+        <service
+            android:name="com.ultraguard.core.sensors.UltraGuardAccessibilityService"
+            android:exported="false"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- Bildirim deseni tespiti. İçerik saklanmaz. -->
+        <service
+            android:name="com.ultraguard.core.sensors.NotificationCollector"
+            android:exported="false"
+            android:label="@string/notification_service_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!--
+          Yerel Zero Trust ağ katmanı.
+          Bu bir VPN DEĞİLDİR: trafik hiçbir sunucuya tünellenmez.
+          `VpnService`, uygulamanın kendi cihazının trafiğini görebilmesinin
+          Android'de desteklenen tek yoludur.
+        -->
+        <service
+            android:name="com.ultraguard.core.network.UltraGuardVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".service.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- WorkManager'ı Hilt ile başlatabilmek için varsayılan başlatıcı kapatılır. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+    </application>
+</manifest>
