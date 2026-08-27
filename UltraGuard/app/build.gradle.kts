@@ -1,6 +1,3 @@
-import java.io.FileInputStream
-import java.util.Properties
-
 plugins {
     id("ultraguard.android.application")
     id("ultraguard.android.compose")
@@ -17,16 +14,33 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    /**
+     * Imzalama yapilandirmasi Gradle ozelliklerinden okunur; anahtar veya
+     * parola hicbir zaman depoya girmez. CI bunlari GitHub Secrets'tan
+     * gecici dosya ve ortam degiskeni olarak saglar.
+     *
+     * Yerel yayin derlemesi icin `~/.gradle/gradle.properties` icine:
+     *   ultraguard.storeFile=/mutlak/yol/ultraguard.jks
+     *   ultraguard.storePassword=...
+     *   ultraguard.keyAlias=...
+     *   ultraguard.keyPassword=...
+     */
+    val releaseStoreFile = providers.gradleProperty("ultraguard.storeFile").orNull
+
     signingConfigs {
-        create("release") {
-            val keystoreProperties = Properties()
-            val keystoreFile = rootProject.file("keystore.properties")
-            if (keystoreFile.exists()) {
-                keystoreProperties.load(FileInputStream(keystoreFile))
-                storeFile = file(keystoreProperties.getProperty("storeFile"))
-                storePassword = keystoreProperties.getProperty("storePassword")
-                keyAlias = keystoreProperties.getProperty("keyAlias")
-                keyPassword = keystoreProperties.getProperty("keyPassword")
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = providers.gradleProperty("ultraguard.storePassword").orNull
+                keyAlias = providers.gradleProperty("ultraguard.keyAlias").orNull
+                keyPassword = providers.gradleProperty("ultraguard.keyPassword").orNull
+                enableV1Signing = false
+                // v2 + v3: Android 7+ tum cihazlarda dogrulanir, v4 ise
+                // artimli kurulum icin. v1 (JAR imzasi) kapali birakilir:
+                // minSdk 29 oldugu icin gereksizdir ve Janus benzeri
+                // imza-atlatma siniflarina yuzey acar.
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
@@ -47,7 +61,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.findByName("release")
 
             // Kendini koruma icin beklenen imza ozeti. Bos birakilirsa
             // `verifyReleaseSigningConfigured` gorevi derlemeyi durdurur:

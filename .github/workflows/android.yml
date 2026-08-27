@@ -141,20 +141,4 @@ jobs:
             "$GITHUB_WORKSPACE/dist/SHA256SUMS.txt" \
             --repo "${{ github.repository }}" \
             --title "UltraGuard OS Shield ${{ steps.apks.outputs.version }}" \
-            --notes "$(cat <<'NOTES'
-### Kurulum
-
-APK'yi indirin ve cihazinizda acin. Play Store disindan kurulum icin
-Ayarlar > Guvenlik > Bilinmeyen kaynaklar iznini vermeniz gerekir.
-
-**Uyumluluk:** Android 10 (API 29) ve uzeri, tum islemci mimarileri
-(arm64-v8a, armeabi-v7a, x86, x86_64). Tek universal APK.
-
-**Dogrulama:** `SHA256SUMS.txt` dosyasindaki ozetle karsilastirin.
-
-### Ilk calistirma
-
-Uygulama izinleri tek tek ve gerekceleriyle ister. Hicbiri zorunlu
-degildir; vermediginiz her izin yalnizca ilgili koruma katmanini kapatir.
-NOTES
-)"
+            --notes-file "$GITHUB_WORKSPACE/UltraGuard/RELEASE_NOTES.md"
