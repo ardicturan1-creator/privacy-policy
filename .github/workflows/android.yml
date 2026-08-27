@@ -1,0 +1,160 @@
+name: UltraGuard APK
+
+on:
+  push:
+    branches: [ "claude/**", "main" ]
+    paths:
+      - 'UltraGuard/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+    inputs:
+      make_release:
+        description: 'GitHub Release olustur ve APK ekle'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ultraguard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Derle ve test et
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: UltraGuard
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 17 kur
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle kur
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Birim testleri
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Test raporlarini yukle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            UltraGuard/**/build/reports/tests/
+            UltraGuard/**/build/test-results/
+          retention-days: 14
+
+      - name: Lint
+        run: ./gradlew :app:lintDebug --stacktrace
+        continue-on-error: true
+
+      # Tum ABI'leri iceren tek APK: ABI bolme YAPILMAZ.
+      # SQLCipher ve TensorFlow Lite yerel kutuphane tasir; bolunmus bir APK
+      # yanlis cihazda calismaz. Tek universal APK her cihaza kurulur.
+      - name: Debug APK derle (universal)
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Imzalama anahtarini hazirla
+        id: keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/ultraguard.jks"
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::KEYSTORE_BASE64 secret'i yok; yalnizca debug APK uretilecek."
+          fi
+
+      - name: Release APK derle (universal, imzali)
+        if: steps.keystore.outputs.available == 'true'
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          # Kendini koruma icin beklenen imza ozeti, anahtarin kendisinden
+          # turetilir. Bu, release derlemesinin imza dogrulamasi olmadan
+          # cikmasini engelleyen kontrolu besler.
+          CERT_SHA=$(keytool -list -v \
+            -keystore "$RUNNER_TEMP/ultraguard.jks" \
+            -alias "$KEY_ALIAS" \
+            -storepass "$KEYSTORE_PASSWORD" \
+            | grep -m1 'SHA256:' | awk '{print $2}' | tr -d ':' | tr 'A-Z' 'a-z')
+
+          echo "::add-mask::$CERT_SHA"
+
+          ./gradlew :app:assembleRelease --stacktrace \
+            -Pultraguard.signingCertSha256="$CERT_SHA" \
+            -Pultraguard.storeFile="$RUNNER_TEMP/ultraguard.jks" \
+            -Pultraguard.storePassword="$KEYSTORE_PASSWORD" \
+            -Pultraguard.keyAlias="$KEY_ALIAS" \
+            -Pultraguard.keyPassword="$KEY_PASSWORD"
+
+      - name: APK'lari adlandir
+        id: apks
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION-$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             "$GITHUB_WORKSPACE/dist/UltraGuard-$VERSION-universal-debug.apk"
+
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk \
+               "$GITHUB_WORKSPACE/dist/UltraGuard-$VERSION-universal-release.apk"
+          fi
+
+          cd "$GITHUB_WORKSPACE/dist"
+          sha256sum *.apk > SHA256SUMS.txt
+          ls -la
+
+      - name: APK'lari yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: UltraGuard-APK
+          path: dist/
+          retention-days: 90
+
+      - name: Release olustur
+        if: inputs.make_release == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.apks.outputs.tag }}" \
+            "$GITHUB_WORKSPACE"/dist/*.apk \
+            "$GITHUB_WORKSPACE/dist/SHA256SUMS.txt" \
+            --repo "${{ github.repository }}" \
+            --title "UltraGuard OS Shield ${{ steps.apks.outputs.version }}" \
+            --notes "$(cat <<'NOTES'
+### Kurulum
+
+APK'yi indirin ve cihazinizda acin. Play Store disindan kurulum icin
+Ayarlar > Guvenlik > Bilinmeyen kaynaklar iznini vermeniz gerekir.
+
+**Uyumluluk:** Android 10 (API 29) ve uzeri, tum islemci mimarileri
+(arm64-v8a, armeabi-v7a, x86, x86_64). Tek universal APK.
+
+**Dogrulama:** `SHA256SUMS.txt` dosyasindaki ozetle karsilastirin.
+
+### Ilk calistirma
+
+Uygulama izinleri tek tek ve gerekceleriyle ister. Hicbiri zorunlu
+degildir; vermediginiz her izin yalnizca ilgili koruma katmanini kapatir.
+NOTES
+)"
