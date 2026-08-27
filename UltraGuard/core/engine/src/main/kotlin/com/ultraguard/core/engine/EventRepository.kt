@@ -9,7 +9,6 @@ import com.ultraguard.core.database.entity.EventEntity
 import com.ultraguard.core.database.entity.VerdictEntity
 import com.ultraguard.core.model.Attribution
 import com.ultraguard.core.model.SecurityEvent
-import com.ultraguard.core.model.SensorSource
 import com.ultraguard.core.model.Subject
 import com.ultraguard.core.model.TrustOverride
 import com.ultraguard.core.model.Verdict
@@ -92,18 +91,27 @@ class EventRepository @Inject constructor(
         attributes = json.encodeToString(attributeSerializer, attributes),
     )
 
-    private fun EventEntity.toDomain() = SecurityEvent(
-        id = id,
-        timestampMillis = timestampMillis,
-        type = type,
-        subject = if (packageName != null && uid != null) {
-            Subject.App(packageName, uid)
-        } else {
-            Subject.System
-        },
-        source = source,
-        attributes = json.decodeFromString(attributeSerializer, attributes),
-    )
+    private fun EventEntity.toDomain(): SecurityEvent {
+        // Yerel degiskene alinmasi zorunlu: `packageName` ve `uid` baska bir
+        // modulun (`:core:database`) public API'sinde tanimli oldugu icin
+        // Kotlin akilli donusum (smart cast) yapamaz -- o modul bagimsiz
+        // derlendiginden derleyici alanin arada degismeyecegini garanti edemez.
+        val entityPackage = packageName
+        val entityUid = uid
+
+        return SecurityEvent(
+            id = id,
+            timestampMillis = timestampMillis,
+            type = type,
+            subject = if (entityPackage != null && entityUid != null) {
+                Subject.App(entityPackage, entityUid)
+            } else {
+                Subject.System
+            },
+            source = source,
+            attributes = json.decodeFromString(attributeSerializer, attributes),
+        )
+    }
 
     private fun Verdict.toEntity() = VerdictEntity(
         packageName = packageName,

@@ -70,6 +70,8 @@ class SettingsViewModel @Inject constructor(
         settingsStore.setZeroTrustNetwork(enabled)
     }
 
+    fun completeOnboarding() = launch { settingsStore.setOnboardingCompleted(true) }
+
     private fun launch(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
     }

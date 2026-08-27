@@ -16,14 +16,27 @@ import com.ultraguard.core.designsystem.theme.UltraGuardTheme
 import com.ultraguard.shield.navigation.Routes
 import com.ultraguard.shield.navigation.UltraGuardNavHost
 import com.ultraguard.shield.service.ProtectionService
+import com.ultraguard.core.datastore.SettingsStore
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+    @Inject lateinit var settingsStore: SettingsStore
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Baslangic ekrani, ilk kare cizilmeden bilinmek zorunda: Compose
+        // ilk once dashboard'u cizip sonra onboarding'e atlarsa kullanici
+        // bir goz kirpma boyunca yanlis ekrani gorur. DataStore'un ilk
+        // degeri diskten okunur ve pratikte mikrosaniyeler surer.
+        val onboarded = runBlocking { settingsStore.settings.first().onboardingCompleted }
+        val startDestination = if (onboarded) Routes.DASHBOARD else Routes.ONBOARDING
 
         // Motor, kullanicinin uygulamayi acmasini beklemez; ancak acildiginda
         // calistigindan emin oluruz (or. kullanici pil optimizasyonuyla
@@ -40,7 +53,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             UltraGuardTheme {
-                UltraGuardApp(initialVerdictId = initialVerdictId)
+                UltraGuardApp(
+                    startDestination = startDestination,
+                    initialVerdictId = initialVerdictId,
+                )
             }
         }
     }
@@ -52,7 +68,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun UltraGuardApp(initialVerdictId: Long?) {
+private fun UltraGuardApp(startDestination: String, initialVerdictId: Long?) {
     val navController = rememberNavController()
 
     LaunchedEffect(initialVerdictId) {
@@ -63,7 +79,10 @@ private fun UltraGuardApp(initialVerdictId: Long?) {
 
     Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
         Box(modifier = Modifier.padding(padding)) {
-            UltraGuardNavHost(navController = navController)
+            UltraGuardNavHost(
+                navController = navController,
+                startDestination = startDestination,
+            )
         }
     }
 }
