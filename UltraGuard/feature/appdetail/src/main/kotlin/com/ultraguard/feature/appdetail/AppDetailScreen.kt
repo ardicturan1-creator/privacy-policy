@@ -24,6 +24,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ultraguard.core.designsystem.R
 import com.ultraguard.core.designsystem.component.EmptyState
 import com.ultraguard.core.designsystem.component.EvidenceBreakdown
 import com.ultraguard.core.designsystem.component.EvidenceItem

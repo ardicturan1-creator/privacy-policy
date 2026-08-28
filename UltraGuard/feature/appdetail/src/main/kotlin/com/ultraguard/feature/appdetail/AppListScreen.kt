@@ -23,6 +23,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.ultraguard.core.database.dao.AppProfileDao
+import com.ultraguard.core.designsystem.R
 import com.ultraguard.core.designsystem.component.EmptyState
 import com.ultraguard.core.designsystem.component.ListDivider
 import com.ultraguard.core.designsystem.component.SectionHeader

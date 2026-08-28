@@ -23,7 +23,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ultraguard.core.designsystem.R
 import com.ultraguard.core.designsystem.component.TrustScoreRing
 import com.ultraguard.core.model.ThreatClass
 
@@ -81,8 +83,11 @@ private fun DashboardContent(
             ) {
                 TrustScoreRing(
                     score = state.trustScore.total,
-                    label = "Cihaz Güveni",
-                    contentDescription = trustDescription(state),
+                    label = stringResource(R.string.dashboard_trust_label),
+                    contentDescription = stringResource(
+                        R.string.dashboard_trust_description,
+                        state.trustScore.total,
+                    ),
                 )
                 // Sakin durumda bile ne yaptigimizi soyleriz: sessizlik,
                 // "hicbir sey olmuyor" degil "her sey izleniyor" demektir.
@@ -97,7 +102,7 @@ private fun DashboardContent(
         if (state.attentionItems.isNotEmpty()) {
             item {
                 Text(
-                    text = "Dikkat gerektiriyor",
+                    text = stringResource(R.string.dashboard_attention_header),
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
@@ -107,13 +112,16 @@ private fun DashboardContent(
         }
 
         item {
-            Text(text = "Son etkinlik", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = stringResource(R.string.dashboard_activity_header),
+                style = MaterialTheme.typography.titleMedium,
+            )
         }
 
         if (state.recentActivity.isEmpty()) {
             item {
                 Text(
-                    text = "Son 7 günde bir müdahale gerekmedi.",
+                    text = stringResource(R.string.dashboard_no_activity),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -130,17 +138,17 @@ private fun DashboardContent(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedButton(onClick = onOpenTimeline, modifier = Modifier.weight(1f)) {
-                    Text("Zaman çizelgesi")
+                    Text(stringResource(R.string.dashboard_open_timeline))
                 }
                 OutlinedButton(onClick = onOpenApps, modifier = Modifier.weight(1f)) {
-                    Text("Uygulamalar")
+                    Text(stringResource(R.string.dashboard_open_apps))
                 }
             }
         }
 
         item {
             OutlinedButton(onClick = onOpenAssistant, modifier = Modifier.fillMaxWidth()) {
-                Text("\"Bu uygulama ne yapıyor?\" diye sor")
+                Text(stringResource(R.string.dashboard_open_assistant))
             }
         }
     }
@@ -165,11 +173,14 @@ private fun AttentionCard(item: AttentionItem, onOpen: () -> Unit) {
             )
             if (item.activeActionCount > 0) {
                 Text(
-                    text = "${item.activeActionCount} koruma önlemi şu anda etkin",
+                    text = stringResource(
+                        R.string.dashboard_actions_active,
+                        item.activeActionCount,
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
-            TextButton(onClick = onOpen) { Text("İncele") }
+            TextButton(onClick = onOpen) { Text(stringResource(R.string.action_examine)) }
         }
     }
 }
@@ -191,31 +202,35 @@ private fun ActivityRow(activity: ActivityItem, onRevert: () -> Unit) {
                 )
             }
             if (activity.reversible) {
-                TextButton(onClick = onRevert) { Text("Geri al") }
+                TextButton(onClick = onRevert) { Text(stringResource(R.string.action_revert)) }
             }
         }
         HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
     }
 }
 
-private fun trustDescription(state: DashboardUiState.Ready): String =
-    "Cihaz güven skoru ${state.trustScore.total}, 100 üzerinden. " +
-        if (state.isCalm) "Dikkat gerektiren bulgu yok." else "${state.attentionItems.size} bulgu var."
-
+/**
+ * Ana ekranin tek satirlik ozeti.
+ *
+ * Sakin durumda bile ne yaptigimizi soyleriz: sessizlik "hicbir sey
+ * olmuyor" degil, "her sey izleniyor" anlamina gelmeli.
+ */
+@Composable
 private fun summaryLine(state: DashboardUiState.Ready): String = when {
     state.attentionItems.isNotEmpty() ->
-        "${state.attentionItems.size} uygulama inceleniyor"
+        stringResource(R.string.dashboard_watching, state.attentionItems.size)
     state.recentActivity.isNotEmpty() ->
-        "Son 7 günde ${state.recentActivity.size} müdahale yapıldı"
-    else -> "İzleme etkin — ${modeLabel(state.mode)}"
+        stringResource(R.string.dashboard_acted, state.recentActivity.size)
+    else ->
+        stringResource(R.string.dashboard_idle, stringResource(modeLabel(state.mode)))
 }
 
-private fun modeLabel(mode: com.ultraguard.core.model.ProtectionMode): String = when (mode) {
-    com.ultraguard.core.model.ProtectionMode.ACTIVE -> "Active"
-    com.ultraguard.core.model.ProtectionMode.STEALTH -> "Stealth"
-    com.ultraguard.core.model.ProtectionMode.PARANOID -> "Paranoid"
-    com.ultraguard.core.model.ProtectionMode.FLEET -> "Fleet"
-    com.ultraguard.core.model.ProtectionMode.BATTERY_GUARD -> "Pil koruma"
+private fun modeLabel(mode: com.ultraguard.core.model.ProtectionMode): Int = when (mode) {
+    com.ultraguard.core.model.ProtectionMode.ACTIVE -> R.string.mode_active
+    com.ultraguard.core.model.ProtectionMode.STEALTH -> R.string.mode_stealth
+    com.ultraguard.core.model.ProtectionMode.PARANOID -> R.string.mode_paranoid
+    com.ultraguard.core.model.ProtectionMode.FLEET -> R.string.mode_fleet
+    com.ultraguard.core.model.ProtectionMode.BATTERY_GUARD -> R.string.mode_battery
 }
 
 private fun threatLabel(threatClass: ThreatClass): String = when (threatClass) {

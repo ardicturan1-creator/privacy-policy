@@ -45,118 +45,27 @@
     <string name="threat_none">Bulgu yok.</string>
 
     <!-- ================= Ortak eylemler ================================= -->
-    <string name="action_examine">İncele</string>
-    <string name="action_revert">Geri al</string>
-    <string name="action_uninstall">Kaldır</string>
-    <string name="action_trust">Güveniyorum</string>
-    <string name="action_false_positive">Bu yanlış alarmdı</string>
-    <string name="action_block_network">Ağını kes</string>
-    <string name="action_continue">Devam</string>
-    <string name="action_skip">Şimdilik atla</string>
-    <string name="action_grant">İzin ver</string>
-    <string name="action_done">Bitir</string>
-    <string name="action_back">Geri</string>
 
     <!-- ================= Ana ekran ====================================== -->
-    <string name="dashboard_trust_label">Cihaz Güveni</string>
-    <string name="dashboard_attention_header">Dikkat gerektiriyor</string>
-    <string name="dashboard_activity_header">Son etkinlik</string>
-    <string name="dashboard_no_activity">Son 7 günde bir müdahale gerekmedi.</string>
-    <string name="dashboard_watching">%1$d uygulama inceleniyor</string>
-    <string name="dashboard_acted">Son 7 günde %1$d müdahale yapıldı</string>
-    <string name="dashboard_idle">İzleme etkin — %1$s</string>
-    <string name="dashboard_actions_active">%1$d koruma önlemi şu anda etkin</string>
-    <string name="dashboard_trust_description">Cihaz güven skoru %1$d, 100 üzerinden.</string>
-    <string name="dashboard_open_timeline">Zaman çizelgesi</string>
-    <string name="dashboard_open_apps">Uygulamalar</string>
-    <string name="dashboard_open_assistant">\"Bu uygulama ne yapıyor?\" diye sor</string>
-    <string name="dashboard_open_settings">Ayarlar</string>
 
     <!-- ================= Modlar ========================================= -->
-    <string name="mode_active">Active</string>
-    <string name="mode_stealth">Stealth</string>
-    <string name="mode_paranoid">Paranoid</string>
-    <string name="mode_fleet">Fleet</string>
-    <string name="mode_battery">Pil koruma</string>
-    <string name="mode_active_desc">Tam telemetri, geri alınabilir otonom müdahale, önemli olaylarda bildirim.</string>
-    <string name="mode_stealth_desc">Aynı koruma, sessiz. Yalnızca kritik bulgular bildirilir.</string>
-    <string name="mode_paranoid_desc">Varsayılan-reddet ağ, yan yükleme engeli, her yeni izin için manuel onay.</string>
-    <string name="mode_fleet_desc">Kurumsal yönetim. Eşikler uzaktan politikayla gelir.</string>
-    <string name="mode_battery_desc">Pil %%15 altında otomatik. Davranış modeli askıya alınır, kural motoru çalışmaya devam eder.</string>
 
     <!-- ================= Zaman çizelgesi ================================ -->
-    <string name="timeline_title">Zaman çizelgesi</string>
-    <string name="timeline_empty">Bu filtreyle gösterilecek olay yok.</string>
-    <string name="timeline_filter_all">Tümü</string>
-    <string name="timeline_subtitle">Gördüğüm her şey burada. Burada olmayan bir olay hiç toplanmamıştır.</string>
 
     <!-- ================= Uygulama listesi ve detayı ===================== -->
-    <string name="apps_title">Uygulamalar</string>
-    <string name="apps_empty">Henüz uygulama envanteri oluşturulmadı.</string>
-    <string name="appdetail_source">Kaynak</string>
-    <string name="appdetail_risk">Risk skoru</string>
-    <string name="appdetail_evidence">Kanıt</string>
-    <string name="appdetail_evidence_empty">Bu uygulama hakkında henüz bir bulgu yok.</string>
-    <string name="appdetail_active_actions">Etkin koruma önlemleri</string>
-    <string name="appdetail_network">Bağlandığı adresler</string>
-    <string name="appdetail_network_empty">Son 7 günde ağ bağlantısı görülmedi.</string>
-    <string name="appdetail_not_found">Bu uygulama artık kurulu değil.</string>
-    <string name="appdetail_trusted_note">Bu uygulamaya güvendiğinizi belirttiniz. İzleme sürüyor ve kritik bulgular yine gösterilir.</string>
-    <string name="appdetail_connections">%1$d bağlantı</string>
 
     <!-- ================= Asistan ======================================== -->
-    <string name="assistant_title">Guardian</string>
-    <string name="assistant_prompt">Hangi uygulamayı merak ediyorsunuz?</string>
-    <string name="assistant_grounding_note">Buradaki her rakam cihazınızdaki bir kayda dayanır. Doğrulayamadığım hiçbir şeyi söylemem.</string>
-    <string name="assistant_fact_install">%1$s üzerinden kuruldu</string>
-    <string name="assistant_fact_age">%1$d gündür kurulu</string>
-    <string name="assistant_fact_sensor">%1$s: %2$d kez</string>
-    <string name="assistant_fact_network">%1$s — %2$d bağlantı, %3$s gönderildi</string>
-    <string name="assistant_fact_dormant">%1$d izin isteniyor ama 30 gündür kullanılmıyor</string>
-    <string name="assistant_fact_verdict">Son bulgu: %1$s (skor %2$d)</string>
-    <string name="assistant_no_data">Bu uygulama hakkında henüz veri toplanmadı.</string>
 
     <!-- ================= Ayarlar ve Şeffaflık Merkezi =================== -->
-    <string name="settings_title">Ayarlar</string>
-    <string name="settings_mode_header">Koruma modu</string>
-    <string name="settings_privacy_header">Gizlilik</string>
-    <string name="settings_privacy_note">Aşağıdaki her şey varsayılan olarak KAPALIDIR. Açmadığınız sürece cihazınızdan hiçbir şey çıkmaz.</string>
-    <string name="settings_cloud">Bulut konsültasyonu</string>
-    <string name="settings_cloud_desc">Emin olamadığım vakalarda uygulamanın APK özetini ve anonim davranış vektörünü sorarım. İçerik, mesaj, dosya veya kimlik bilgisi asla gönderilmez.</string>
-    <string name="settings_federated">Federated learning</string>
-    <string name="settings_federated_desc">Modeli iyileştirmek için yalnızca matematiksel gürültü eklenmiş model güncellemeleri paylaşılır. Ham olaylarınız cihazdan çıkmaz. Yalnızca şarjda ve Wi-Fi\'da çalışır.</string>
-    <string name="settings_retention">Veri saklama süresi</string>
-    <string name="settings_retention_value">%1$d gün</string>
-    <string name="settings_retention_desc">Bu süreden eski olaylar her gece gerçekten silinir.</string>
-    <string name="settings_protection_header">Koruma katmanları</string>
-    <string name="settings_financial_shield">Finansal Kalkan</string>
-    <string name="settings_financial_shield_desc">Bankacılık ekranlarında overlay, ekran kaydı ve pano erişimini engeller.</string>
-    <string name="settings_zero_trust">Zero Trust ağ katmanı</string>
-    <string name="settings_zero_trust_desc">Uygulama başına ağ politikası. Bu bir VPN değildir: trafik hiçbir sunucuya gönderilmez, cihazınızda kalır.</string>
-    <string name="settings_transparency_header">Şeffaflık Merkezi</string>
-    <string name="settings_ledger_intact">Kayıt defteri sağlam — %1$d kayıt doğrulandı</string>
-    <string name="settings_ledger_broken">UYARI: kayıt defteri kurcalanmış (kayıt %1$d)</string>
-    <string name="settings_ledger_verify">Defteri yeniden doğrula</string>
-    <string name="settings_ledger_desc">UltraGuard\'ın yaptığı her müdahale hash zinciriyle korunan bir deftere yazılır. Geçmişe müdahale edilirse zincir kırılır ve burada görünür.</string>
-    <string name="settings_delete_all">Tüm verilerimi sil</string>
-    <string name="settings_delete_all_desc">Olay geçmişi, hükümler ve uygulama profilleri kalıcı olarak silinir.</string>
 
     <!-- ================= Onboarding ===================================== -->
-    <string name="onboarding_welcome_title">Taramaz. Anlar.</string>
-    <string name="onboarding_welcome_body">UltraGuard, uygulamaları dosya olarak değil, zaman içindeki davranışları olarak değerlendirir. Bu yüzden daha önce hiç görülmemiş zararlıları da yakalayabilir.\n\nSizden birkaç izin isteyeceğim. Her birinin nedenini ve o izinle NE YAPMAYACAĞIMI ayrı ayrı anlatacağım. Hiçbiri zorunlu değil.</string>
-    <string name="onboarding_a11y_title">Neden erişilebilirlik izni istiyorum?</string>
-    <string name="onboarding_a11y_body">Duraksadıysanız haklısınız — bankacılık trojanları da tam olarak bu izni ister.\n\nOnlar bu izni ekranınızı okumak için kullanır. Ben aynı izni, başka bir uygulamanın bunu yaptığını görmek için kullanırım.\n\nNE YAPMIYORUM: ekran metnini okuma yeteneğim yapılandırma dosyasında platform düzeyinde kapatılmıştır. Yalnızca hangi pencerenin kime ait olduğunu görürüm.</string>
-    <string name="onboarding_notification_title">Neden bildirim erişimi istiyorum?</string>
-    <string name="onboarding_notification_body">OTP sızdırma saldırılarında zararlı uygulama bildiriminizi okur ve kodu saniyeler içinde dışarı gönderir. Bu diziyi görmeden saldırıyı tespit etmenin başka yolu yok.\n\nNE YAPMIYORUM: bildirim metniniz kaydedilmez. Metin bellekte desen eşlemesinden geçer ve yalnızca \"OTP kalıbı görüldü\" gibi türetilmiş bir etiket saklanır.</string>
-    <string name="onboarding_vpn_title">Neden VPN izni istiyorum?</string>
-    <string name="onboarding_vpn_body">Bu bir VPN değil. Android\'de bir uygulamanın kendi cihazının ağ trafiğini görebilmesinin desteklenen tek yolu bu API.\n\nNE YAPMIYORUM: trafiğiniz hiçbir sunucuya tünellenmez. Şifrelemenizi açmam. Yalnızca hangi uygulamanın nereye bağlandığına bakar, kararı cihazda veririm.</string>
-    <string name="onboarding_battery_title">Pil optimizasyonu</string>
-    <string name="onboarding_battery_body">Koruma motorunun sürekli çalışabilmesi için pil optimizasyonundan muaf tutulması gerekiyor. \"Bazen çalışan\" bir güvenlik ürünü, korumadığı anlarda size korunuyormuşsunuz hissi verir.\n\nHedef tüketim: 24 saatte %%1,5 altı.</string>
-    <string name="onboarding_done_title">Hazır</string>
-    <string name="onboarding_done_body">İzleme başladı. Verdiğiniz izinlerle hangi koruma katmanlarının etkin olduğunu ana ekranda her zaman görebilirsiniz.</string>
-    <string name="onboarding_skipped_note">Atlanan izinler nedeniyle bazı koruma katmanları kapalı. İstediğiniz zaman Ayarlar\'dan açabilirsiniz.</string>
 
     <!-- ================= Genel ========================================== -->
-    <string name="loading">Yükleniyor…</string>
-    <string name="capability_unavailable">Bu cihazda yapılamadı</string>
+
+    <!--
+      Bildirim eylem etiketi. Ayni metin tasarim sisteminde de var; bildirim
+      `:app` katmaninda uretildigi ve o modulun kendi R sinifini kullandigi
+      icin burada da tanimli olmasi gerekiyor.
+    -->
+    <string name="action_examine">İncele</string>
 </resources>

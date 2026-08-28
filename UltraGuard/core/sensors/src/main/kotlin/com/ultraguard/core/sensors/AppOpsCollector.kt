@@ -115,14 +115,26 @@ class AppOpsCollector @Inject constructor(
     private companion object {
         const val TAG = "AppOpsCollector"
 
-        val WATCHED_OPS = listOf(
+        /**
+         * Pano ve ekran yakalama op'lari AOSP'de tanimlidir ancak sabitleri
+         * `@hide` isaretlidir; SDK'da gorunmezler. Yansima ile erismek
+         * kirilgan oldugu icin (adlar surumler arasi degisebilir) op
+         * dizeleri dogrudan yazilir. Bu adlar AOSP'de Android 10'dan beri
+         * degismemistir; `startWatchingMode` taninmayan bir op icin sessizce
+         * basarisiz olur ve ilgili sinyal yalnizca eksik kalir -- calisma
+         * zamaninda cokme uretmez.
+         */
+        const val OPSTR_READ_CLIPBOARD = "android:read_clipboard"
+        const val OPSTR_PROJECT_MEDIA = "android:project_media"
+
+        val WATCHED_OPS: List<Pair<String, EventType>> = listOf(
             AppOpsManager.OPSTR_CAMERA to EventType.SENSOR_CAMERA_ACCESS,
             AppOpsManager.OPSTR_RECORD_AUDIO to EventType.SENSOR_MICROPHONE_ACCESS,
             AppOpsManager.OPSTR_FINE_LOCATION to EventType.SENSOR_LOCATION_ACCESS,
             AppOpsManager.OPSTR_COARSE_LOCATION to EventType.SENSOR_LOCATION_ACCESS,
-            AppOpsManager.OPSTR_READ_CLIPBOARD to EventType.CLIPBOARD_READ,
             AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW to EventType.OVERLAY_DRAWN,
-            AppOpsManager.OPSTR_PROJECT_MEDIA to EventType.MEDIA_PROJECTION_STARTED,
+            OPSTR_READ_CLIPBOARD to EventType.CLIPBOARD_READ,
+            OPSTR_PROJECT_MEDIA to EventType.MEDIA_PROJECTION_STARTED,
         )
     }
 }
