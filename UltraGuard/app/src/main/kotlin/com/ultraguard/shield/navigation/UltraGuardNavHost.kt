@@ -36,13 +36,10 @@ object Routes {
     const val SETTINGS = "settings"
 
     const val ARG_PACKAGE = "packageName"
-    const val ARG_VERDICT = "verdictId"
 
     const val APP_DETAIL = "app/{$ARG_PACKAGE}"
-    const val THREAT_DETAIL = "threat/{$ARG_VERDICT}"
 
     fun appDetail(packageName: String) = "app/$packageName"
-    fun threatDetail(verdictId: Long) = "threat/$verdictId"
 }
 
 @Composable
@@ -80,7 +77,9 @@ fun UltraGuardNavHost(
 
         composable(Routes.DASHBOARD) {
             DashboardScreen(
-                onOpenThreat = { verdictId -> navController.navigate(Routes.threatDetail(verdictId)) },
+                onOpenThreat = { packageName ->
+                    navController.navigate(Routes.appDetail(packageName))
+                },
                 onOpenTimeline = { navController.navigate(Routes.TIMELINE) },
                 onOpenApps = { navController.navigate(Routes.APPS) },
                 onOpenAssistant = { navController.navigate(Routes.ASSISTANT) },
@@ -106,16 +105,6 @@ fun UltraGuardNavHost(
         composable(
             route = Routes.APP_DETAIL,
             arguments = listOf(navArgument(Routes.ARG_PACKAGE) { type = NavType.StringType }),
-        ) {
-            AppDetailScreen(onBack = { navController.popBackStack() })
-        }
-
-        // Tehdit detayi, ilgili paketin detay ekranidir: kullaniciyi ayri bir
-        // "tehdit" gorunumune goturmek, ayni uygulama hakkinda iki farkli
-        // dogruluk kaynagi olusturur.
-        composable(
-            route = Routes.THREAT_DETAIL,
-            arguments = listOf(navArgument(Routes.ARG_VERDICT) { type = NavType.LongType }),
         ) {
             AppDetailScreen(onBack = { navController.popBackStack() })
         }

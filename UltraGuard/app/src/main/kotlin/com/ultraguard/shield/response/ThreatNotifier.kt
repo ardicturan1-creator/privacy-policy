@@ -38,7 +38,7 @@ class ThreatNotifier @Inject constructor(
             verdict.id.toInt(),
             Intent(context, MainActivity::class.java).apply {
                 action = MainActivity.ACTION_OPEN_THREAT
-                putExtra(MainActivity.EXTRA_VERDICT_ID, verdict.id)
+                putExtra(MainActivity.EXTRA_PACKAGE, verdict.packageName)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,

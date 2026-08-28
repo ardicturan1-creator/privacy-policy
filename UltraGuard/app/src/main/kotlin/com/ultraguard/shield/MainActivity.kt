@@ -46,16 +46,16 @@ class MainActivity : ComponentActivity() {
         // Bildirimden gelindiyse dogrudan ilgili tehdit ekrani acilir.
         // Kullaniciyi ana ekrana birakip "simdi bul" demek, acil bir uyarinin
         // en kotu bicimde sunulmasidir.
-        val initialVerdictId = intent
+        val initialPackage = intent
             ?.takeIf { it.action == ACTION_OPEN_THREAT }
-            ?.getLongExtra(EXTRA_VERDICT_ID, -1L)
-            ?.takeIf { it >= 0 }
+            ?.getStringExtra(EXTRA_PACKAGE)
+            ?.takeIf { it.isNotBlank() }
 
         setContent {
             UltraGuardTheme {
                 UltraGuardApp(
                     startDestination = startDestination,
-                    initialVerdictId = initialVerdictId,
+                    initialPackage = initialPackage,
                 )
             }
         }
@@ -63,17 +63,17 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_OPEN_THREAT = "com.ultraguard.action.OPEN_THREAT"
-        const val EXTRA_VERDICT_ID = "verdict_id"
+        const val EXTRA_PACKAGE = "package_name"
     }
 }
 
 @Composable
-private fun UltraGuardApp(startDestination: String, initialVerdictId: Long?) {
+private fun UltraGuardApp(startDestination: String, initialPackage: String?) {
     val navController = rememberNavController()
 
-    LaunchedEffect(initialVerdictId) {
-        if (initialVerdictId != null) {
-            navController.navigate(Routes.threatDetail(initialVerdictId))
+    LaunchedEffect(initialPackage) {
+        if (initialPackage != null) {
+            navController.navigate(Routes.appDetail(initialPackage))
         }
     }
 

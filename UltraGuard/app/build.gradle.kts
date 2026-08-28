@@ -127,6 +127,7 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.hilt.work)
     implementation(libs.hilt.navigation.compose)
+    ksp(libs.androidx.hilt.compiler)
 
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.espresso.core)

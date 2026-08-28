@@ -21,6 +21,7 @@ tflite = "2.16.1"
 tfliteGpu = "2.16.1"
 playIntegrity = "1.4.0"
 hiltNavCompose = "1.2.0"
+androidxHilt = "1.2.0"
 junit = "4.13.2"
 truth = "1.4.4"
 turbine = "1.2.0"
@@ -62,7 +63,11 @@ androidx-biometric = { module = "androidx.biometric:biometric-ktx", version.ref 
 hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }
 hilt-compiler = { module = "com.google.dagger:hilt-android-compiler", version.ref = "hilt" }
 hilt-navigation-compose = { module = "androidx.hilt:hilt-navigation-compose", version.ref = "hiltNavCompose" }
-hilt-work = { module = "androidx.hilt:hilt-work", version = "1.2.0" }
+hilt-work = { module = "androidx.hilt:hilt-work", version.ref = "androidxHilt" }
+# @HiltWorker'in fabrika kodunu ureten islemci. Dagger'in kendi
+# hilt-android-compiler'i bunu URETMEZ; ikisi birlikte gerekir. Eksikse
+# KSP "error.NonExistentClass" ile basarisiz olur.
+androidx-hilt-compiler = { module = "androidx.hilt:hilt-compiler", version.ref = "androidxHilt" }
 
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }

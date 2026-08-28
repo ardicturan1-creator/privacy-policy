@@ -2,20 +2,29 @@
 
 **Taramaz. Anlar.** — Android için davranışsal, cihaz-üstü güvenlik katmanı.
 
-Bu depo, [mimari tasarım dokümanında](../docs/ultraguard-os-shield.md) tarif
-edilen ürünün MVP kod tabanıdır. İmza tabanlı tarama yerine **davranış dizisi**
-üzerine kurulu bir tespit motoru içerir.
+İmza tabanlı tarama yerine **davranış dizisi** üzerine kurulu bir tespit
+motoru. Mimari gerekçeler ve ürün tasarımı için:
+[tasarım dokümanı](../docs/ultraguard-os-shield.md).
 
 ---
 
-## Derleme durumu
+## APK indirme
 
-> **Bu proje henüz bir CI ortamında derlenmemiştir.** Kod, Android SDK ve
-> Google Maven erişimi olmayan bir ortamda yazıldı; derleme doğrulaması
-> Android Studio'da yapılmalıdır. Aşağıdaki "İlk derleme" bölümü beklenen
-> adımları verir.
+| Kaynak | Nasıl |
+|---|---|
+| **Releases** | Depo ana sayfasında sağdaki *Releases* bölümü |
+| **Actions** | *Actions → UltraGuard APK → son çalışma → Artifacts → UltraGuard-APK* |
 
-### Gereksinimler
+**Uyumluluk:** Android 10 (API 29) ve üzeri · arm64-v8a, armeabi-v7a, x86,
+x86_64 · **tek universal APK**. ABI bölünmesi bilinçli olarak yapılmıyor:
+SQLCipher ve TensorFlow Lite yerel kütüphane taşır, bölünmüş bir APK yanlış
+cihazda çalışmaz.
+
+`SHA256SUMS.txt` ile indirdiğiniz dosyayı doğrulayabilirsiniz.
+
+---
+
+## Derleme
 
 | Bileşen | Sürüm |
 |---|---|
@@ -25,43 +34,51 @@ edilen ürünün MVP kod tabanıdır. İmza tabanlı tarama yerine **davranış 
 | compileSdk / targetSdk | 35 |
 | minSdk | 29 (Android 10) |
 
-`minSdk = 29` bilinçli bir karardır: `ConnectivityManager.getConnectionOwnerUid`
-(paket→UID eşlemesi) ve `AppOpsManager.startWatchingMode`'un güvenilir
-davranışı bu sürümle gelir. Bunlar olmadan ağ ve sensör telemetrisi anonim
-bir akışa indirgenir — eksik telemetriyle çalışan bir güvenlik ürünü,
-korumadığı şeyi koruduğunu iddia eder.
-
-### İlk derleme
-
 ```bash
-./gradlew :core:model:test           # saf JVM, en hızlı geri bildirim
-./gradlew testDebugUnitTest          # tüm birim testleri
-./gradlew :app:assembleDebug
+./gradlew testDebugUnitTest     # tüm birim testleri
+./gradlew :app:assembleDebug    # universal debug APK
 ```
 
-Release derlemesi, kendini koruma yapılandırması olmadan **kasıtlı olarak
-başarısız olur**:
+`minSdk = 29` bir kısıt değil, gereklilik: paket→UID eşlemesi
+(`ConnectivityManager.getConnectionOwnerUid`) ve güvenilir sensör telemetrisi
+(`AppOpsManager.startWatchingMode`) bu sürümle geliyor. Bunlar olmadan ağ ve
+sensör izleme anonim bir akışa indirgenir — eksik telemetriyle çalışan bir
+güvenlik ürünü, korumadığı şeyi koruduğunu iddia eder.
+
+### Yayın derlemesi
+
+Kendini koruma yapılandırması olmadan **kasıtlı olarak başarısız olur**:
 
 ```bash
-./gradlew :app:assembleRelease -Pultraguard.signingCertSha256=<64-hane-sha256>
+./gradlew :app:assembleRelease \
+  -Pultraguard.signingCertSha256=<imza-sertifikasinin-sha256> \
+  -Pultraguard.storeFile=/yol/ultraguard.jks \
+  -Pultraguard.storePassword=... \
+  -Pultraguard.keyAlias=... \
+  -Pultraguard.keyPassword=...
 ```
+
+CI'da bu değerler GitHub Secrets'tan gelir (`KEYSTORE_BASE64`,
+`KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`); imza özeti anahtarın
+kendisinden türetilir. Anahtar veya parola depoya hiçbir zaman girmez.
 
 ---
 
 ## Modül haritası
 
 ```
-:app                    Compose host, navigation, DI birleştirme, ProtectionService
+:app                    Compose host, navigation, DI birleştirme, ProtectionService,
+                        ThreatResponder, bildirimler, WorkManager işleri
 :core:model             Saf domain tipleri (JVM) — SecurityEvent, Verdict, EnforcementAction
 :core:common            Dispatcher'lar, Clock soyutlaması, gizlilik farkındalıklı log
-:core:designsystem      Compose tema, TrustScoreRing, EvidenceBreakdown
+:core:designsystem      Compose tema, TrustScoreRing, EvidenceBreakdown, ortak metinler
 :core:database          Room + SQLCipher; olay/hüküm/defter kalıcılığı
 :core:datastore         Kullanıcı tercihleri (gizlilik ayarları varsayılan KAPALI)
 :core:security          StrongBox anahtar yönetimi, root tespiti, kendini koruma, hash zinciri
 :core:engine            EventBus, EventNormalizer (L0), korelasyon, ThreatPipeline
-:core:policy            EnforcementPlanner, ActionLedger (geri alınabilir yaptırım)
+:core:policy            EnforcementPlanner, EnforcementExecutor, ActionLedger
 :core:ai                L1 kural motoru (17 kural), L2 TFLite sarmalayıcı, RiskFusion
-:core:sensors           StaticApkTriage, AppOps, Accessibility, Notification, Settings
+:core:sensors           StaticApkTriage, AppOps, Accessibility, Notification, Clipboard
 :core:network           VpnService ZTNA, TLS ClientHello ayrıştırıcı, beacon/DGA tespiti
 :feature:*              dashboard · timeline · appdetail · assistant · settings
 :module:deepscan        [R] eBPF/Binder köprüsü — ayrı APK, ana uygulama onsuz çalışır
@@ -73,33 +90,38 @@ birleşir. Sensörler birbirini tanımaz; hepsi yalnızca `EventBus`'a yazar.
 
 ---
 
-## Mimarinin üç taşıyıcı fikri
+## Mimarinin taşıyıcı fikirleri
 
-### 1. Karar zinciri kademelidir
+### Karar zinciri kademelidir
 
 ```
-Olay akışı → L0 normalizasyon (%97 elenir)
-           → L1 deterministik kural motoru (<1 ms)
+Olay akışı → L0 normalizasyon (~%97 elenir, dedup + sistem paketi filtresi)
+           → L1 deterministik kural motoru (<1 ms, 17 kural)
            → L2 cihaz-üstü dizi modeli (~30 ms, örneklemeli)
-           → RiskFusion → EnforcementPlanner
+           → RiskFusion → EnforcementPlanner → EnforcementExecutor
 ```
 
-L2 her olayda çalışmaz. `MonitoringStateMachine`, BASELINE durumunda olayların
-%5'ini modele çıkarır ve HEIGHTENED durumu **her zaman süre sınırlıdır**
-(10 dk). Sürekli yüksek tüketim mimari olarak oluşamaz.
+`MonitoringStateMachine`, BASELINE durumunda olayların %5'ini modele çıkarır
+ve HEIGHTENED durumu **her zaman süre sınırlıdır** (10 dk). Sürekli yüksek
+tüketim mimari olarak oluşamaz. Pil %15 altına inince `BATTERY_GUARD` devreye
+girer: L2 askıya alınır, L1 ve ağ kalkanı çalışmaya devam eder.
 
-### 2. Otonom eylem yalnızca geri alınabilir olabilir
+### Otonom eylem yalnızca geri alınabilir olabilir
 
-`EnforcementPlan`'ın `init` bloğu bunu derleme sonrası ilk çalıştırmada
-zorlar: `reversible = false` olan hiçbir eylem otonom kuyruğa giremez.
-Uygulama kaldırma her zaman kullanıcı onayına gider. Yanlış pozitifin
-kullanıcıya kalıcı zarar vermesi böylece **yapısal olarak** imkânsızdır.
+`EnforcementPlan`'ın `init` bloğu bunu çalışma zamanında zorlar:
+`reversible = false` olan hiçbir eylem otonom kuyruğa giremez. Uygulama
+kaldırma her zaman kullanıcı onayına gider. Yanlış pozitifin kullanıcıya
+kalıcı zarar vermesi böylece **yapısal olarak** imkânsızdır.
 
-### 3. Açıklanamayan hüküm üretilemez
+`EnforcementExecutor` ayrıca: başarısız eylemi `APPLIED` değil `FAILED`
+kaydeder, yetki yoksa `SKIPPED_NO_CAPABILITY` yazar ve sessizce atlamaz.
+
+### Açıklanamayan hüküm üretilemez
 
 `Verdict`'in `init` bloğu boş `attributions` listesini reddeder. Kural
-motorunda kanıt toplama, koşul kontrolünün yan ürünüdür (`RuleContext.need`),
-dolayısıyla "eşleşti ama nedenini bilmiyoruz" durumu oluşamaz.
+motorunda kanıt toplama, koşul kontrolünün yan ürünüdür
+(`RuleContext.need`), dolayısıyla "eşleşti ama nedenini bilmiyoruz" durumu
+oluşamaz.
 
 ---
 
@@ -112,37 +134,47 @@ Bunlar yorum değil, uygulanan kısıtlardır:
 | `accessibility_service_config.xml` | `canRetrieveWindowContent="false"` — ekran metnini okuma yeteneği **platform düzeyinde** kapalı |
 | `UltraGuardAccessibilityService` | `getText()` çağrısı yok ve eklenmemeli |
 | `SensitivePatternMatcher` | Girdi metni alır, **yalnızca etiket** döndürür; metin hiçbir yere yazılmaz |
-| `NotificationCollector` | Bildirim içeriği RAM'de sınıflandırılır, olaya yalnızca `matched_pattern` yazılır |
+| `NotificationCollector` / `ClipboardMonitor` | İçerik RAM'de sınıflandırılır, olaya yalnızca `matched_pattern` yazılır |
 | `data_extraction_rules.xml` | Hiçbir şey yedeklenmez — güvenlik geçmişi buluta gitmez |
 | `SettingsStore` | Bulut konsültasyonu ve federated learning varsayılan **KAPALI** |
 | `UltraGuardVpnService` | Tünel çıkışı yoktur; trafik hiçbir sunucuya gönderilmez |
+| `DatabaseKeyProvider` | Anahtar StrongBox → TEE → yazılım kademeli; ulaşılan seviye kayıt altında |
+
+**Manifest'te bilinçli olarak istemediğimiz izinler** gerekçeleriyle
+listelenmiştir: `CAMERA`, `RECORD_AUDIO`, `READ_SMS`,
+`ACCESS_FINE_LOCATION`, `READ_CONTACTS`.
 
 ---
 
 ## Test
 
-Test edilebilirlik, `Clock` soyutlaması ve saf Kotlin katmanları sayesinde
-emülatörsüzdür:
+`Clock` soyutlaması ve saf Kotlin katmanları sayesinde emülatörsüz:
 
 ```bash
 ./gradlew testDebugUnitTest
 ```
 
-Kapsanan alanlar: kural motoru eşleşme ve eşleşmeme senaryoları, korelasyon
-penceresi sıralama mantığı, yaptırım planlayıcının geri-alınabilirlik
-değişmezi, hash zinciri kurcalama tespiti, izleme durum makinesi geçişleri,
-TLS ClientHello ayrıştırma (bozuk girdi dahil), beacon/DGA sınıflandırma,
-hassas desen eşleme, entropi hesabı.
+| Alan | Kapsam |
+|---|---|
+| Kural motoru | Eşleşme ve **eşleşmeme** senaryoları, skor tavanı, yetki filtresi |
+| Korelasyon penceresi | Sıralama, zaman penceresi sınırları |
+| Yaptırım planlayıcı | Geri-alınabilirlik değişmezi, mod eşikleri, yetki eksikliği |
+| Yaptırım uygulayıcı | Defter kaydı, başarısızlık, geri alma, çift geri alma reddi |
+| Hash zinciri | Kayıt değiştirme ve silme tespiti, alan sınırı çakışması |
+| Durum makinesi | Yükselme, süre aşımı, CONTAINMENT kalıcılığı |
+| Ağ | TLS ClientHello (bozuk girdi dahil), JA4 kararlılığı, beacon, DGA, IP başlığı |
+| Sensör | Hassas desen eşleme, entropi hesabı |
 
 ---
 
-## Bilinen boşluklar (MVP kapsamı)
+## Bilinen sınırlar
 
 - **L2 model dosyası yok.** `behavior_seq_int8.tflite` henüz eğitilmedi;
   `LazyModelProvider` bunu algılar ve L1 tek başına çalışmaya devam eder.
-- **Compose ekranları kısmi.** Dashboard tam; timeline/appdetail/assistant/
-  settings ViewModel katmanı hazır, ekran bileşenleri eksik.
+  Koruma azalır, kesilmez.
 - **`:module:deepscan` yalnızca arayüz.** eBPF program yükleme ve Binder
-  tracepoint uygulaması v2.0 kapsamındadır.
-- **Tehdit istihbaratı beslemesi yok.** `reputation` alanları şu an boş.
-- **Federated learning istemcisi yok.** v1.5 kapsamındadır.
+  tracepoint uygulaması ayrı bir root paketiyle gelecek.
+- **Tehdit istihbaratı beslemesi bağlı değil.** `reputation` alanları boş.
+- **Federated learning istemcisi yok.** Ayar mevcut ama istemci yazılmadı.
+- **Fleet (kurumsal) modu kısmi.** Device Owner yaptırımları çalışır, uzaktan
+  politika dağıtımı ve SIEM aktarımı yok.

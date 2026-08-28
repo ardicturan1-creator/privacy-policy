@@ -31,7 +31,11 @@ import com.ultraguard.core.model.ThreatClass
 
 @Composable
 fun DashboardScreen(
-    onOpenThreat: (Long) -> Unit,
+    /**
+     * Tehdit detayi, ilgili paketin detay ekranidir. Ayri bir "tehdit"
+     * gorunumu, ayni uygulama hakkinda iki farkli dogruluk kaynagi olustururdu.
+     */
+    onOpenThreat: (packageName: String) -> Unit,
     onOpenTimeline: () -> Unit,
     onOpenApps: () -> Unit,
     onOpenAssistant: () -> Unit,
@@ -63,7 +67,7 @@ fun DashboardScreen(
 @Composable
 private fun DashboardContent(
     state: DashboardUiState.Ready,
-    onOpenThreat: (Long) -> Unit,
+    onOpenThreat: (String) -> Unit,
     onOpenTimeline: () -> Unit,
     onOpenApps: () -> Unit,
     onOpenAssistant: () -> Unit,
@@ -107,7 +111,7 @@ private fun DashboardContent(
                 )
             }
             items(state.attentionItems, key = { it.verdictId }) { item ->
-                AttentionCard(item = item, onOpen = { onOpenThreat(item.verdictId) })
+                AttentionCard(item = item, onOpen = { onOpenThreat(item.packageName) })
             }
         }
 
