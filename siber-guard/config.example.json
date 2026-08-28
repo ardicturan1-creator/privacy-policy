@@ -1,0 +1,11 @@
+{
+  "risk_threshold": 0.6,
+  "upstream_dns": "1.1.1.1",
+  "dns_listen": "0.0.0.0",
+  "dns_port": 53,
+  "cache_ttl_seconds": 300,
+  "allowlist_path": "data/allowlist.txt",
+  "denylist_path": "data/denylist.txt",
+  "log_path": "siber-guard.log",
+  "vt_cache_path": "data/vt_cache.json"
+}

@@ -1,0 +1,3 @@
+# Her satira bir domain yaz. Bu domain'ler ve alt-domainleri, model ne
+# derse desin HER ZAMAN engellenir (bilinen zararli domain'i kalici
+# engellemek icin). '#' ile baslayan satirlar yorumdur.

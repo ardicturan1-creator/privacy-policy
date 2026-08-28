@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 siber-guard.log
+.pytest_cache/
+config.json
+data/vt_cache.json

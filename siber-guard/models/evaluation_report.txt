@@ -1,0 +1,27 @@
+Egitim zamani: 2026-08-28T06:06:01.190134+00:00
+Secilen model: random_forest
+
+Capraz dogrulama (egitim seti icinde, 5-kat ROC-AUC):
+{
+  "random_forest": {
+    "roc_auc_mean": 0.9966986794717887,
+    "roc_auc_std": 0.0037580974411761197
+  },
+  "gradient_boosting": {
+    "roc_auc_mean": 0.9966489452924027,
+    "roc_auc_std": 0.0029490602740903506
+  },
+  "logistic_regression": {
+    "roc_auc_mean": 0.9933321900188646,
+    "roc_auc_std": 0.0065482789484404775
+  }
+}
+
+Test seti ROC-AUC: 0.9999  PR-AUC: 1.0000
+Test seti yanlis siniflandirma sayisi: 2
+
+ZOR TEST SETI ROC-AUC: 0.9557  PR-AUC: 0.8604
+ZOR TEST SETI yanlis siniflandirma sayisi: 2
+ZOR TEST SETI yanlis siniflandirilan ornekler:
+  'hepsiburada-kurumsal.com': gercek=0 tahmin=1
+  'istanbul-altyapi.gov.tr': gercek=0 tahmin=1

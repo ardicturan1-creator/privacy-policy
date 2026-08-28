@@ -65,6 +65,8 @@ vakifbank.com.tr
 halkbank.com.tr
 turkiye.gov.tr
 e-devlet.gov.tr
+mevzuat.gov.tr
+resmigazete.gov.tr
 meb.gov.tr
 saglik.gov.tr
 tcmb.gov.tr
