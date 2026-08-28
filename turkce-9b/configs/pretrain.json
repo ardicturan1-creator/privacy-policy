@@ -1,0 +1,30 @@
+{
+  "optimizer": "adamw",
+  "betas": [0.9, 0.95],
+  "eps": 1e-8,
+  "weight_decay": 0.1,
+  "weight_decay_exclude": ["norm", "embedding"],
+  "peak_lr": 3.0e-4,
+  "min_lr": 3.0e-5,
+  "warmup_steps": 2000,
+  "scheduler": "wsd",
+  "decay_fraction": 0.15,
+  "global_batch_tokens": 4194304,
+  "batch_ramp": {"from": 1048576, "to": 4194304, "steps": 5000},
+  "total_steps": 75000,
+  "total_tokens": 300000000000,
+  "grad_clip": 1.0,
+  "precision": {"compute": "bf16", "master_weights": "fp32"},
+  "parallelism": {"fsdp": "zero3", "tensor_parallel": 2, "sequence_parallel": true},
+  "activation_checkpointing": "selective_attention",
+  "checkpoint_every_steps": 1000,
+  "eval_every_steps": 2500,
+  "phases": [
+    {"name": "F0-isinma",   "tokens": [0,           4000000000],   "seq_len": 8192},
+    {"name": "F1-govde",    "tokens": [4000000000,  255000000000], "seq_len": 8192},
+    {"name": "F2-sogutma",  "tokens": [255000000000,295000000000], "seq_len": 8192,
+     "mix": {"diyalog": 0.35, "mizah": 0.10, "kitap": 0.20, "web": 0.25, "ansiklopedi": 0.10}},
+    {"name": "F3-uzun-baglam", "tokens": [295000000000, 300000000000], "seq_len": 32768,
+     "rope_theta": 2000000.0, "lr": 3.0e-5}
+  ]
+}

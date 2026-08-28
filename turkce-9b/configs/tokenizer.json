@@ -1,0 +1,25 @@
+{
+  "algorithm": "bpe",
+  "byte_fallback": true,
+  "vocab_size": 64000,
+  "normalizer": "NFC",
+  "lowercase": false,
+  "repeat_char_cap": 3,
+  "special_tokens": [
+    "<|bos|>", "<|eos|>", "<|pad|>",
+    "<|sistem|>", "<|kullanici|>", "<|asistan|>", "<|mesaj_sonu|>"
+  ],
+  "reserved_token_count": 249,
+  "seed_tokens": {
+    "ekler": ["ler","lar","de","da","te","ta","den","dan","mis","mus","yor",
+              "acak","ecek","abilir","ebilir","lik","luk","sin","ki","ce","ca"],
+    "konusma": ["abicim","valla","yaa","hacı","knk","aynen","eyvallah","ya",
+                "hadi","tamam","yok artık","cidden","olm","he"],
+    "emoticon": [":)", ":D", ":(", ";)", "xd", ":'(", ":/"]
+  },
+  "acceptance": {
+    "fertility_chat_max": 1.55,
+    "fertility_news_max": 1.70,
+    "roundtrip_lossless": true
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "sft": {
+    "examples": 200000,
+    "epochs": 3,
+    "lr": 1.0e-5,
+    "scheduler": "cosine",
+    "warmup_fraction": 0.03,
+    "global_batch_seqs": 128,
+    "dropout": 0.05,
+    "loss_on": "assistant_tokens_only",
+    "mix": {
+      "gunluk_sohbet": 0.35, "dogal_mizah": 0.25, "hafif_alayci": 0.10,
+      "empatik_ciddi": 0.10, "bilgi_yardim": 0.10, "guvenlik": 0.05,
+      "uzun_cok_turlu": 0.05
+    },
+    "target_turns_mean": 7
+  },
+  "dpo": {
+    "pairs": 80000,
+    "beta": 0.1,
+    "lr": 5.0e-7,
+    "epochs": 2,
+    "iterative_rounds": 3
+  },
+  "guardrails": {
+    "joke_density_target": [0.30, 0.45],
+    "group_targeted_humor_tolerance": 0.0,
+    "contextual_humor_min": 0.80
+  }
+}

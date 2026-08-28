@@ -1,0 +1,23 @@
+{
+  "name": "tr-sohbet-9b",
+  "d_model": 4608,
+  "n_layers": 40,
+  "n_heads": 36,
+  "n_kv_heads": 6,
+  "head_dim": 128,
+  "ffn_hidden": 12160,
+  "ffn_activation": "swiglu",
+  "norm": "rmsnorm_pre",
+  "norm_eps": 1e-5,
+  "position": "rope",
+  "rope_theta": 500000.0,
+  "vocab_size": 64000,
+  "tie_word_embeddings": true,
+  "attention_bias": false,
+  "ffn_bias": false,
+  "max_seq_len_pretrain": 8192,
+  "max_seq_len_final": 32768,
+  "attn_dropout": 0.0,
+  "qk_norm": true,
+  "z_loss": 1e-4
+}
