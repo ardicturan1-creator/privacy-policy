@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Destek Sayfası">
+    <title>Destek Merkezi</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #fff3e9 0%, #ffd9b3 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #ff7a30 0%, #ff9d4d 100%);
+            color: white;
+            padding: 60px 20px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        header p {
+            font-size: 1rem;
+            opacity: 0.95;
+            margin-bottom: 20px;
+        }
+
+        .last-updated {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            border-top: 1px solid rgba(255, 255, 255, 0.3);
+            padding-top: 15px;
+            margin-top: 15px;
+        }
+
+        .content {
+            padding: 40px 30px;
+        }
+
+        .toc {
+            background: #fff7f0;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            border-left: 4px solid #ff7a30;
+        }
+
+        .toc h3 {
+            margin-bottom: 15px;
+            color: #ff7a30;
+            font-size: 1.1rem;
+        }
+
+        .toc ul {
+            list-style: none;
+        }
+
+        .toc li {
+            margin: 8px 0;
+        }
+
+        .toc a {
+            color: #ff7a30;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .toc a:hover {
+            color: #d9611a;
+            text-decoration: underline;
+        }
+
+        section {
+            margin-bottom: 40px;
+        }
+
+        section h2 {
+            color: #ff7a30;
+            font-size: 1.8rem;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0e0d0;
+        }
+
+        section h3 {
+            color: #d9611a;
+            font-size: 1.2rem;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+
+        section p {
+            margin-bottom: 15px;
+            color: #555;
+            line-height: 1.8;
+        }
+
+        .highlight {
+            background: #fff3e9;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #ff7a30;
+            margin: 20px 0;
+        }
+
+        .highlight strong {
+            color: #ff7a30;
+        }
+
+        ul, ol {
+            margin-left: 25px;
+            margin-bottom: 15px;
+        }
+
+        li {
+            margin-bottom: 8px;
+            color: #555;
+        }
+
+        .faq-item {
+            border: 1px solid #f0e0d0;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+
+        .faq-question {
+            background: #fff7f0;
+            padding: 15px 18px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #b8480f;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            list-style: none;
+        }
+
+        .faq-question::-webkit-details-marker {
+            display: none;
+        }
+
+        .faq-question::after {
+            content: "+";
+            font-size: 1.3rem;
+            color: #ff7a30;
+            margin-left: 10px;
+        }
+
+        details[open] .faq-question::after {
+            content: "−";
+        }
+
+        .faq-answer {
+            padding: 15px 18px;
+            color: #555;
+            border-top: 1px solid #f0e0d0;
+        }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin: 20px 0;
+        }
+
+        .card {
+            background: #fff7f0;
+            border: 1px solid #f0e0d0;
+            border-radius: 8px;
+            padding: 18px;
+        }
+
+        .card h3 {
+            margin-top: 0;
+            color: #ff7a30;
+            font-size: 1.05rem;
+        }
+
+        .card p {
+            font-size: 0.92rem;
+            margin-bottom: 0;
+        }
+
+        .contact-info {
+            background: linear-gradient(135deg, #ff7a30 0%, #ff9d4d 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 30px 0;
+        }
+
+        .contact-info h3 {
+            color: white;
+            margin-bottom: 12px;
+        }
+
+        .contact-info p {
+            color: rgba(255, 255, 255, 0.95);
+            margin-bottom: 8px;
+        }
+
+        .contact-info a {
+            color: #fff0e0;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .contact-info a:hover {
+            text-decoration: underline;
+        }
+
+        .status-badge {
+            display: inline-block;
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin: 10px 0;
+        }
+
+        footer {
+            background: #fff7f0;
+            padding: 30px;
+            text-align: center;
+            color: #999;
+            font-size: 0.9rem;
+            border-top: 1px solid #f0e0d0;
+        }
+
+        .back-to-top {
+            display: none;
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #ff7a30;
+            color: white;
+            padding: 12px 16px;
+            border-radius: 50%;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 20px;
+            z-index: 1000;
+            transition: background 0.3s ease;
+        }
+
+        .back-to-top:hover {
+            background: #d9611a;
+        }
+
+        .back-to-top.show {
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.8rem;
+            }
+
+            header {
+                padding: 40px 20px;
+            }
+
+            .content {
+                padding: 25px 20px;
+            }
+
+            section h2 {
+                font-size: 1.4rem;
+            }
+
+            section h3 {
+                font-size: 1.1rem;
+            }
+
+            .contact-info {
+                padding: 20px;
+            }
+
+            .toc {
+                padding: 15px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+
+            header h1 {
+                font-size: 1.5rem;
+            }
+
+            .content {
+                padding: 20px 15px;
+            }
+
+            section h2 {
+                font-size: 1.2rem;
+            }
+
+            ul, ol {
+                margin-left: 20px;
+            }
+
+            .back-to-top {
+                bottom: 20px;
+                right: 20px;
+                padding: 10px 14px;
+                font-size: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Destek Merkezi</h1>
+            <p>Neon Rift</p>
+            <div class="last-updated">
+                Son güncelleme: <strong>2 Eylül 2026</strong>
+            </div>
+        </header>
+
+        <div class="content">
+            <div class="toc">
+                <h3>📋 İçindekiler</h3>
+                <ul>
+                    <li><a href="#section1">Hoş Geldiniz</a></li>
+                    <li><a href="#section2">Hızlı Yardım Konuları</a></li>
+                    <li><a href="#section3">Sık Sorulan Sorular</a></li>
+                    <li><a href="#section4">Sorun Bildirme</a></li>
+                    <li><a href="#section5">İletişim</a></li>
+                </ul>
+            </div>
+
+            <section id="section1">
+                <h2>👋 Hoş Geldiniz</h2>
+                <p>
+                    "Neon Rift" destek merkezine hoş geldiniz. Uygulamayla ilgili yaşadığınız
+                    sorunlar, sorularınız veya önerileriniz için bu sayfayı kullanabilirsiniz.
+                </p>
+                <span class="status-badge">✓ Destek hattı aktif</span>
+            </section>
+
+            <section id="section2">
+                <h2>🧭 Hızlı Yardım Konuları</h2>
+                <div class="card-grid">
+                    <div class="card">
+                        <h3>Kurulum ve Giriş</h3>
+                        <p>Uygulamayı indirme, kurma ve ilk açılışta karşılaşılan sorunlar.</p>
+                    </div>
+                    <div class="card">
+                        <h3>Hesap Yönetimi</h3>
+                        <p>Ayarlar, tercihler ve cihaz üzerindeki verilerin yönetimi.</p>
+                    </div>
+                    <div class="card">
+                        <h3>Performans Sorunları</h3>
+                        <p>Yavaşlama, donma veya beklenmedik kapanma durumları.</p>
+                    </div>
+                    <div class="card">
+                        <h3>Öneri ve Geri Bildirim</h3>
+                        <p>Yeni özellik talepleri ve genel geri bildirimleriniz.</p>
+                    </div>
+                </div>
+            </section>
+
+            <section id="section3">
+                <h2>❓ Sık Sorulan Sorular</h2>
+
+                <details class="faq-item">
+                    <summary class="faq-question">Uygulama neden internet bağlantısı istemiyor?</summary>
+                    <div class="faq-answer">
+                        "Neon Rift" tüm işlemleri cihazınız üzerinde gerçekleştirir, bu nedenle
+                        çoğu özellik internet bağlantısı olmadan da çalışır.
+                    </div>
+                </details>
+
+                <details class="faq-item">
+                    <summary class="faq-question">Verilerim güvende mi?</summary>
+                    <div class="faq-answer">
+                        Evet. Uygulama kişisel veri toplamaz; ayrıntılar için
+                        <a href="gizlilik-politikasi.html">Gizlilik Politikası</a> sayfasını inceleyebilirsiniz.
+                    </div>
+                </details>
+
+                <details class="faq-item">
+                    <summary class="faq-question">Uygulama açılmıyor veya donuyor, ne yapmalıyım?</summary>
+                    <div class="faq-answer">
+                        Öncelikle uygulamayı kapatıp yeniden açmayı deneyin. Sorun devam ederse
+                        cihazınızı yeniden başlatın ve uygulamanın en güncel sürümde olduğundan emin olun.
+                    </div>
+                </details>
+
+                <details class="faq-item">
+                    <summary class="faq-question">Bir hata bildirmek istiyorum, nasıl yapabilirim?</summary>
+                    <div class="faq-answer">
+                        Aşağıdaki "Sorun Bildirme" bölümündeki adımları izleyerek veya doğrudan
+                        iletişim adresimize e-posta göndererek bize ulaşabilirsiniz.
+                    </div>
+                </details>
+            </section>
+
+            <section id="section4">
+                <h2>🛠️ Sorun Bildirme</h2>
+                <p>Bir sorun bildirirken aşağıdaki bilgileri paylaşmanız çözüm sürecini hızlandırır:</p>
+                <ul>
+                    <li>Cihaz modeli ve işletim sistemi sürümü</li>
+                    <li>Uygulama sürüm numarası</li>
+                    <li>Sorunun ne zaman ve nasıl ortaya çıktığı</li>
+                    <li>Varsa ekran görüntüsü veya ekran kaydı</li>
+                </ul>
+                <div class="highlight">
+                    <strong>İpucu:</strong> Sorunu ne kadar ayrıntılı anlatırsanız, çözüm o kadar hızlı sağlanır.
+                </div>
+            </section>
+
+            <section id="section5">
+                <h2>✉️ İletişim</h2>
+                <p>Destek ekibimize aşağıdaki kanaldan ulaşabilirsiniz.</p>
+                <div class="contact-info">
+                    <h3>Bize Ulaşın</h3>
+                    <p>📧 E-posta: <a href="mailto:destek@neonrift.example.com">destek@neonrift.example.com</a></p>
+                    <p>🕐 Yanıt süresi: Genellikle 1-2 iş günü içinde</p>
+                </div>
+            </section>
+        </div>
+
+        <footer>
+            <p>&copy; 2026 [GELİŞTİRİCİ ADI]. Tüm hakları saklıdır.</p>
+            <p style="margin-top: 10px; font-size: 0.85rem;">
+                Bu destek sayfası gerektiğinde güncellenebilir. Son güncelleme: 2 Eylül 2026
+            </p>
+        </footer>
+    </div>
+
+    <a href="#section1" class="back-to-top" id="backToTop">↑</a>
+
+    <script>
+        const backToTop = document.getElementById('backToTop');
+
+        window.addEventListener('scroll', () => {
+            if (window.pageYOffset > 300) {
+                backToTop.classList.add('show');
+            } else {
+                backToTop.classList.remove('show');
+            }
+        });
+
+        backToTop.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        });
+    </script>
+</body>
+</html>
